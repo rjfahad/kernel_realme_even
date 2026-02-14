@@ -41,10 +41,6 @@ obj-$(CONFIG_OPLUS_FEATURE_MM_FEEDBACK)         += oplus_mm_fb/
 obj-$(CONFIG_OPLUS_FEATURE_QCOM_WATCHDOG)     += qcom_watchdog/
 #endif /* OPLUS_FEATURE_QCOM_WATCHDOG */
 
-#ifdef OPLUS_FEATURE_THEIA
-#yanggang@BSP.Kernel.Stability,2020/07/08, Add for theia
-obj-$(CONFIG_OPLUS_FEATURE_THEIA)     += theia/
-#endif /* OPLUS_FEATURE_THEIA */
 #ifdef OPLUS_FEATURE_SELINUX_CONTROL_LOG
 #Shuangquan.Du@ANDROID.SELINUX, 2018/01/13, Add for disable selinux denied logs in MP version
 obj-$(CONFIG_SECURITY_SELINUX) += selinux/
