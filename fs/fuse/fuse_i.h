@@ -1028,10 +1028,13 @@ int fuse_set_acl(struct inode *inode, struct posix_acl *acl, int type);
 #ifdef CONFIG_OPLUS_FEATURE_FUSE_FS_SHORTCIRCUIT
 extern int sct_mode;
 #endif /* CONFIG_OPLUS_FEATURE_FUSE_FS_SHORTCIRCUIT */
-#ifdef CONFIG_OPLUS_FEATURE_ACM
-//Yuwei.Guan@BSP.Kernel.FS,2020/07/08, Add for acm
-void acm_fuse_init_cache(void);
-void acm_fuse_free_cache(void);
-#endif
+/* passthrough.c */
+int fuse_passthrough_open(struct fuse_dev *fud, u32 lower_fd);
+int fuse_passthrough_setup(struct fuse_conn *fc, struct fuse_file *ff,
+			   struct fuse_open_out *openarg);
+void fuse_passthrough_release(struct fuse_passthrough *passthrough);
+ssize_t fuse_passthrough_read_iter(struct kiocb *iocb, struct iov_iter *to);
+ssize_t fuse_passthrough_write_iter(struct kiocb *iocb, struct iov_iter *from);
+ssize_t fuse_passthrough_mmap(struct file *file, struct vm_area_struct *vma);
 
 #endif /* _FS_FUSE_I_H */
