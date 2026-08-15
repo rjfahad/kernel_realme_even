@@ -865,6 +865,7 @@ KBUILD_CFLAGS += $(call cc-disable-warning, gnu)
 KBUILD_CFLAGS += $(call cc-disable-warning, duplicate-decl-specifier)
 # Quiet clang warning: comparison of unsigned expression < 0 is always false
 KBUILD_CFLAGS += $(call cc-disable-warning, tautological-compare)
+KBUILD_CFLAGS += $(call cc-disable-warning, default-const-init-var-unsafe)
 
 # Silence noisy void pointer to enum cast warnings
 KBUILD_CFLAGS += $(call cc-disable-warning, void-pointer-to-enum-cast)
