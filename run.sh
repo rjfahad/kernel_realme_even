@@ -78,15 +78,29 @@ zip_name_for_version() {
 
 # --- Root solution ---
 detect_root_solution() {
-    if [ -d "$SCRIPT_DIR/KernelSU-Next" ]; then
-        local remote
-        remote="$(git -C "$SCRIPT_DIR/KernelSU-Next" remote get-url origin 2>/dev/null || true)"
-        if echo "$remote" | grep -qi "KernelSU-Next"; then
-            echo "ksunext"
-            return
-        fi
+    if [ -f "$SCRIPT_DIR/KernelSU-Next/kernel/Kconfig" ]; then
+        echo "ksunext"
+    elif git submodule status 2>/dev/null | grep -q '^-.*KernelSU-Next'; then
+        echo "ksunext (uninitialized)"
+    else
+        echo "none"
     fi
-    echo "none"
+}
+
+ensure_root_solution() {
+    if [ -f "$SCRIPT_DIR/KernelSU-Next/kernel/Kconfig" ]; then
+        return 0
+    fi
+    if git submodule status 2>/dev/null | grep -q '^-.*KernelSU-Next'; then
+        info "Initializing KernelSU-Next submodule..."
+        git submodule update --init --recursive
+    fi
+    if [ ! -f "$SCRIPT_DIR/KernelSU-Next/kernel/Kconfig" ]; then
+        error "KernelSU-Next not available."
+        error "Run menu -> [1] Setup Workspace, or:"
+        error "  git submodule update --init --recursive"
+        return 1
+    fi
 }
 
 # --- Toolchain ---
@@ -229,6 +243,10 @@ setup_workspace() {
 
     setup_anykernel
 
+    if ! ensure_root_solution; then
+        return 1
+    fi
+
     if setup_path; then
         info "Workspace setup complete"
     else
@@ -241,6 +259,10 @@ build_and_package() {
     header "Build & Package"
 
     if ! setup_path; then
+        return 1
+    fi
+
+    if ! ensure_root_solution; then
         return 1
     fi
 
@@ -360,6 +382,10 @@ one_shot_build() {
     version="$(read_version)"
 
     if ! setup_path; then
+        exit 1
+    fi
+
+    if ! ensure_root_solution; then
         exit 1
     fi
 
