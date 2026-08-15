@@ -133,9 +133,12 @@ kernel/configs/android-*.cfg
 /out/
 /clang/
 /clang-proton/
+/prebuilts-clang-proton/
 /anykernel3/
 /anykernel/
 /arm-gcc/
 /aarch64-gcc/
 origami_kernel_builder.sh
 .buildnumber
+.kernel_zip_version
+/Stock-Even-RUI2-v*.zip
