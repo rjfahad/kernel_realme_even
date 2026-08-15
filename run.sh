@@ -167,7 +167,17 @@ setup_anykernel() {
 }
 
 # --- Build ---
+ensure_clean_source() {
+    if [ -f "$SCRIPT_DIR/.config" ] || [ -d "$SCRIPT_DIR/include/config" ]; then
+        warn "Source tree has in-tree build leftovers (.config / include/config)"
+        info "Running 'make mrproper' to clean source tree..."
+        make mrproper CONFIG_KSU_MANUAL_HOOK=y
+    fi
+}
+
 build_kernel() {
+    ensure_clean_source
+
     info "Defconfig: $DEFCONFIG"
     make O="$OUT_DIR" ARCH=$ARCH CC=clang HOSTCC=clang CROSS_COMPILE=aarch64-linux-gnu- "$DEFCONFIG"
 
