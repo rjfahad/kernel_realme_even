@@ -9,6 +9,7 @@
 #include <linux/rtc.h>
 #include <linux/ktime.h>
 #include <linux/fs.h>
+#include <linux/namei.h>
 
 #ifdef CONFIG_OPLUS_KEVENT_UPLOAD
 #include <linux/oplus_kevent.h>
@@ -504,7 +505,8 @@ static int oplus_chg_read_filedata(struct timespec *ts)
 
 	filp = filp_open(OPLUS_CHG_MONITOR_FILE, O_RDONLY, 0644);
 	if (IS_ERR(filp)) {
-		chg_err("open file %s failed[%d].\n", OPLUS_CHG_MONITOR_FILE, PTR_ERR(filp));
+		if (PTR_ERR(filp) != -ENOENT)
+			chg_err("open file %s failed[%d].\n", OPLUS_CHG_MONITOR_FILE, PTR_ERR(filp));
 		return -1;
 	}
 
@@ -525,6 +527,21 @@ static int oplus_chg_read_filedata(struct timespec *ts)
 	return 0;
 }
 
+static int oplus_chg_mkdir_data_charge(void)
+{
+	struct dentry *dentry;
+	struct path path;
+	int err;
+
+	dentry = kern_path_create(AT_FDCWD, "/data/oplus_charge", &path, LOOKUP_DIRECTORY);
+	if (IS_ERR(dentry))
+		return PTR_ERR(dentry);
+
+	err = vfs_mkdir(path.dentry->d_inode, dentry, 0755);
+	done_path_create(&path, dentry);
+	return err;
+}
+
 static int oplus_chg_write_filedata(struct timespec *ts)
 {
 	struct file *filp = NULL;
@@ -535,8 +552,20 @@ static int oplus_chg_write_filedata(struct timespec *ts)
 
 	filp = filp_open(OPLUS_CHG_MONITOR_FILE, O_RDWR | O_CREAT, 0644);
 	if (IS_ERR(filp)) {
-		chg_err("open file %s failed[%d].\n", OPLUS_CHG_MONITOR_FILE, PTR_ERR(filp));
-		return -1;
+		if (PTR_ERR(filp) == -ENOENT) {
+			int err = oplus_chg_mkdir_data_charge();
+
+			if (err && err != -EEXIST)
+				chg_err("mkdir /data/oplus_charge failed[%d].\n", err);
+			filp = filp_open(OPLUS_CHG_MONITOR_FILE, O_RDWR | O_CREAT, 0644);
+			if (IS_ERR(filp)) {
+				chg_err("open file %s failed[%d].\n", OPLUS_CHG_MONITOR_FILE, PTR_ERR(filp));
+				return -1;
+			}
+		} else {
+			chg_err("open file %s failed[%d].\n", OPLUS_CHG_MONITOR_FILE, PTR_ERR(filp));
+			return -1;
+		}
 	}
 
 	old_fs = get_fs();
