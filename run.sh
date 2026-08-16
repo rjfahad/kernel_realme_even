@@ -46,7 +46,7 @@ PROTON_REPO="https://github.com/kdrag0n/proton-clang.git"
 LINEAGE_CLANG="$(realpath "$SCRIPT_DIR/../../../prebuilts/clang/host/linux-x86/mylitle-clang" 2>/dev/null || true)"
 ZIP_PREFIX="Stock-Even-RUI2"
 VERSION_FILE="$SCRIPT_DIR/.kernel_zip_version"
-KERNEL_STRING="Stock Kernel Even (Migrated + KSUNext) by rjfahad"
+KERNEL_STRING="Stock Kernel Even (Migrated + KSUNext + WireGuard) by rjfahad"
 
 FORCE=0
 DO_PACKAGE=1
@@ -134,6 +134,38 @@ setup_path() {
     clang --version 2>/dev/null | head -1 | sed 's/^/    /'
 }
 
+# --- Prerequisites ---
+check_prereqs() {
+    local missing=0
+    for cmd in perl zip; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            error "Missing prerequisite: $cmd"
+            missing=1
+        fi
+    done
+    if [ "$missing" = 1 ]; then
+        error "Install missing prerequisites and retry."
+        error "  (Debian/Ubuntu) sudo apt install perl zip"
+        return 1
+    fi
+    return 0
+}
+
+# --- WireGuard integration ---
+check_wireguard() {
+    if [ ! -f "$SCRIPT_DIR/drivers/net/wireguard/Kconfig" ] || \
+       [ ! -f "$SCRIPT_DIR/drivers/net/wireguard/Kbuild" ]; then
+        warn "WireGuard source missing at drivers/net/wireguard/"
+        warn "Skipping wireguard checks (build may fail if referenced)."
+        return 0
+    fi
+    if ! grep -q '^CONFIG_WIREGUARD=y' "$SCRIPT_DIR/arch/arm64/configs/$DEFCONFIG"; then
+        error "CONFIG_WIREGUARD=y not set in $DEFCONFIG"
+        return 1
+    fi
+    info "WireGuard: in-tree source + CONFIG_WIREGUARD=y"
+}
+
 # --- Device tree compiler ---
 setup_dtc() {
     if command -v dtc >/dev/null 2>&1; then
@@ -178,8 +210,17 @@ ensure_clean_source() {
 build_kernel() {
     ensure_clean_source
 
+    check_prereqs
+    check_wireguard
+
     info "Defconfig: $DEFCONFIG"
     make O="$OUT_DIR" ARCH=$ARCH CC=clang HOSTCC=clang CROSS_COMPILE=aarch64-linux-gnu- "$DEFCONFIG"
+
+    if grep -q '^CONFIG_WIREGUARD=y' "$OUT_DIR/.config" 2>/dev/null; then
+        info "WireGuard enabled in build config (CONFIG_WIREGUARD=y)"
+    else
+        warn "CONFIG_WIREGUARD not set in out/.config; wireguard will not be built"
+    fi
 
     setup_dtc
 
@@ -238,6 +279,12 @@ clean_all() {
 # --- 1. Setup Workspace ---
 setup_workspace() {
     header "Setup Workspace"
+
+    if ! check_prereqs; then
+        return 1
+    fi
+
+    check_wireguard
 
     if [ "$(detect_toolchain)" = "none" ]; then
         info "Cloning Proton Clang..."
@@ -350,14 +397,20 @@ push_to_device() {
 
 # --- Menu ---
 show_menu() {
-    local compiler root_sol build_version
+    local compiler root_sol build_version wg_status
     compiler="$(detect_toolchain)"
     root_sol="$(detect_root_solution)"
     build_version="$(read_version)"
+    if [ -d "$SCRIPT_DIR/drivers/net/wireguard" ]; then
+        wg_status="in-tree"
+    else
+        wg_status="missing"
+    fi
 
     header "Realme Even Kernel Builder"
     echo -e "  Compiler:   ${BOLD}${compiler}${NC}"
     echo -e "  Root:       ${BOLD}${root_sol}${NC}"
+    echo -e "  WireGuard:  ${BOLD}${wg_status}${NC}"
     echo -e "  Zip Ver:    ${BOLD}v${build_version}${NC}"
     echo -e "  Branch:     ${BOLD}$(git branch --show-current 2>/dev/null || echo detached)${NC}"
     echo ""
