@@ -44,9 +44,9 @@ ANYKERNEL_CONFIG="$SCRIPT_DIR/config/anykernel.sh"
 PROTON_DIR="$SCRIPT_DIR/prebuilts-clang-proton"
 PROTON_REPO="https://github.com/kdrag0n/proton-clang.git"
 LINEAGE_CLANG="$(realpath "$SCRIPT_DIR/../../../prebuilts/clang/host/linux-x86/mylitle-clang" 2>/dev/null || true)"
-ZIP_PREFIX="Stock-Even-RUI2"
+ZIP_PREFIX="Arise-Even"
 VERSION_FILE="$SCRIPT_DIR/.kernel_zip_version"
-KERNEL_STRING="Stock Kernel Even (Migrated + KSUNext + WireGuard) by rjfahad"
+KERNEL_STRING="Arise Even Kernel by rjfahad"
 
 FORCE=0
 DO_PACKAGE=1
@@ -407,7 +407,7 @@ show_menu() {
         wg_status="missing"
     fi
 
-    header "Realme Even Kernel Builder"
+    header "Arise Even Kernel Builder"
     echo -e "  Compiler:   ${BOLD}${compiler}${NC}"
     echo -e "  Root:       ${BOLD}${root_sol}${NC}"
     echo -e "  WireGuard:  ${BOLD}${wg_status}${NC}"

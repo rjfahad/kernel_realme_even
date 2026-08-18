@@ -4,7 +4,7 @@
 ### AnyKernel setup
 # global properties
 properties() { '
-kernel.string=Stock Kernel Even (Migrated) by rjfahad
+kernel.string=Arise Even Kernel by rjfahad
 do.devicecheck=1
 do.modules=0
 do.systemless=1
@@ -41,14 +41,15 @@ PATCH_VBMETA_FLAG=auto;
 . tools/ak3-core.sh;
 
 ui_print " "
-ui_print "     █████╗ ██████╗ ██╗███████╗███████╗"
-ui_print "    ██╔══██╗██╔══██╗██║██╔════╝██╔════╝"
-ui_print "    ███████║██████╔╝██║███████╗█████╗  "
-ui_print "    ██╔══██║██╔══██╗██║╚════██║██╔══╝  "
-ui_print "    ██║  ██║██║  ██║██║███████║███████╗"
-ui_print "    ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝"
+ui_print "    ##   #####  #####  #####  ##### "
+ui_print "   #  #  #    #   ##   #     #     "
+ui_print "  #    # #    #   ##   #     #     "
+ui_print "  ###### ####     ##    ####  ####  "
+ui_print "  #    # #  #     ##        #  #     "
+ui_print "  #    # #   #    ##        #  #     "
+ui_print "  #    # #    #  #####  #####  ##### "
 ui_print " "
-ui_print "      Stock Kernel Even - Migrated (MT6768)"
+ui_print "      Arise Even Kernel (MT6768)"
 ui_print " "
 # boot install
 dump_boot; # use split_boot to skip ramdisk unpack, e.g. for devices with init_boot ramdisk
