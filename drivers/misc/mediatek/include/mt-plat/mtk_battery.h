@@ -76,6 +76,7 @@ extern signed int battery_get_bat_temperature(void);
 extern signed int battery_get_ibus(void);
 extern signed int battery_get_vbus(void);
 extern signed int battery_get_bat_avg_current(void);
+extern signed int battery_get_cycle_count(void);
 
 #if defined (CONFIG_OPLUS_CHARGER_MTK6769) || defined (CONFIG_OPLUS_CHARGER_MTK6768) || defined (CONFIG_OPLUS_CHARGER_MTK6769R)
 /*Liu.Yong@RM.CM.BSP.CHG 2020/08/22, Add charger code*/

@@ -4012,6 +4012,9 @@ static int battery_get_property(struct power_supply *psy,
 			pr_err("bat pro POWER_SUPPLY_CAPACITY_LEVEL_CRITICAL, should shutdown!!!\n");
 		}
 		break;
+	case POWER_SUPPLY_PROP_CYCLE_COUNT:
+		val->intval = battery_get_cycle_count();
+		break;
 	default:
 		rc = oplus_battery_get_property(psy, psp, val);
 		break;
@@ -4049,6 +4052,7 @@ static enum power_supply_property battery_properties[] = {
         POWER_SUPPLY_PROP_HEALTH,
         POWER_SUPPLY_PROP_PRESENT,
         POWER_SUPPLY_PROP_TECHNOLOGY,
+        POWER_SUPPLY_PROP_CYCLE_COUNT,
         POWER_SUPPLY_PROP_CAPACITY,
         POWER_SUPPLY_PROP_TEMP,
         POWER_SUPPLY_PROP_VOLTAGE_NOW,

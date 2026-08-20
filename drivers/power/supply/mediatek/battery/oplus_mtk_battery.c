@@ -4174,7 +4174,9 @@ int meter_fg_30_get_bat_charging_current(void)
 
 static int meter_fg_30_get_battery_fcc(void)
 {
-	if(is_project(OPPO_206AC)){
+	if (is_project(OPPO_206AC) || is_project(0x2167A) ||
+	    is_project(0x2167B) || is_project(0x2167C) ||
+	    is_project(0x2167D)) {
 		return 6000;
 	}
 	return MONET_BATTERY_FCC;

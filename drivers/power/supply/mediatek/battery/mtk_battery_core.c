@@ -119,6 +119,11 @@ extern bool prj_is_subboard_temp_support(void);
 /* ============================================================ */
 struct mtk_battery gm;
 
+int battery_get_cycle_count(void)
+{
+	return gm.bat_cycle;
+}
+
 /* ============================================================ */
 /* gauge hal interface */
 /* ============================================================ */
