@@ -110,9 +110,6 @@
 /*Chaochao.Liu@ODM_WT.NW.RF.swtp, 2020/12/29, Add for swtp, RF cable detect */
 	swtp:swtp {
 		compatible = "mediatek, swtp-eint";
-	};
-
-	pio:pio@10005000 {
 		interrupt-parent = <&pio>;
 		interrupts = <76 IRQ_TYPE_LEVEL_HIGH 76 0>;
 		deb-gpios = <&pio 76 0x0>;
@@ -1306,7 +1303,7 @@
 /* DISPSYS GPIO standardization end*/
 
 #include "mediatek/bq2589x.dtsi"
-#include <oppo6769_2167A/cust.dtsi>
+#include "oppo6768_2167A/cust.dtsi"
 #include "mediatek/cust_mt6769_touch_720x1600.dtsi"
 #include "mediatek/cust_mt6769_camera_even.dtsi"
 #include "mediatek/cust_mt6768_touch_1080x2160.dtsi"

@@ -546,7 +546,7 @@
 
         qcom,normal_phase5_bat_decidegc = <380>;       /* 38C ~ 40C */
         qcom,temp_normal_phase5_vfloat_mv = <4435>;
-        qcom,temp_normal_phase5_fastchg_current_ma = <2200>;
+        qcom,temp_normal_phase5_fastchg_current_ma = <1700>;
 
         qcom,normal_phase6_bat_decidegc = <400>;       /* 40C ~ 45C */
         qcom,temp_normal_phase6_vfloat_mv = <4435>;
@@ -1281,7 +1281,7 @@
 };
 #include "mediatek/bq2589x.dtsi"
 #include "mediatek/bq25910.dtsi"
-#include <oppo6769_216AF/cust.dtsi>
+#include "oppo6768_216AF/cust.dtsi"
 #include "mediatek/cust_mt6769_camera_even.dtsi"
 #include "mediatek/cust_mt6769_touch_720x1600.dtsi"
 #include "mediatek/sy6974.dtsi"
