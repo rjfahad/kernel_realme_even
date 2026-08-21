@@ -47,6 +47,7 @@ LINEAGE_CLANG="$(realpath "$SCRIPT_DIR/../../../prebuilts/clang/host/linux-x86/m
 ZIP_PREFIX="Arise-Even"
 VERSION_FILE="$SCRIPT_DIR/.kernel_zip_version"
 KERNEL_STRING="Arise Even Kernel by rjfahad"
+STOCK_DTBO="${STOCK_DTBO:-$SCRIPT_DIR/stock_dtbo.img}"
 
 FORCE=0
 DO_PACKAGE=1
@@ -265,7 +266,88 @@ build_dtbo() {
         info "  $(basename "$f") ($sz)"
     done
 
-    if [ -f "$mkdtbo" ]; then
+    local stock_dtbo="$STOCK_DTBO"
+    if [ -f "$mkdtbo" ] && [ -f "$stock_dtbo" ]; then
+        python3 - "$OUT_DIR/dtbo.img" "$stock_dtbo" "${dtbo_files[@]}" <<'PYEOF'
+import struct, sys, os, hashlib
+
+out_path = sys.argv[1]
+stock_path = sys.argv[2]
+our_dtbo_paths = sys.argv[3:]
+
+# Read stock image
+with open(stock_path, 'rb') as f:
+    stock = bytearray(f.read())
+
+# Parse stock header
+stock_total = struct.unpack('>I', stock[4:8])[0]
+stock_hdr_size = struct.unpack('>I', stock[8:12])[0]
+stock_entry_size = struct.unpack('>I', stock[12:16])[0]
+stock_entry_count = struct.unpack('>I', stock[16:20])[0]
+stock_entries_off = struct.unpack('>I', stock[20:24])[0]
+stock_page_size = struct.unpack('>I', stock[24:28])[0]
+
+print(f'Stock: {stock_entry_count} entries, total_size={stock_total}, file={len(stock)} bytes')
+
+# Parse stock entries
+stock_entries = []
+for i in range(stock_entry_count):
+    off = stock_entries_off + i * stock_entry_size
+    dt_size = struct.unpack('>I', stock[off:off+4])[0]
+    dt_offset = struct.unpack('>I', stock[off+4:off+8])[0]
+    eid = struct.unpack('>I', stock[off+8:off+12])[0]
+    stock_entries.append({'size': dt_size, 'offset': dt_offset, 'id': eid})
+    print(f'  stock[{i}] id={eid} size={dt_size} offset={dt_offset}')
+
+# Read our built DTBOs and map them to stock entry indices by matching DTB content
+our_dtbo_data = []
+for p in our_dtbo_paths:
+    with open(p, 'rb') as f:
+        our_dtbo_data.append(f.read())
+    print(f'  built: {os.path.basename(p)} ({len(our_dtbo_data[-1])} bytes)')
+
+# Match our DTBOs to stock entry slots
+# Our DTBOs are for: 20761, 2167A, 216AF
+# Stock slots: 0-2 = stock-only, 3 = 2167A, 4 = 216AF
+slot_map = {}
+for i, data in enumerate(our_dtbo_data):
+    for si in range(stock_entry_count):
+        stock_dtb = stock[stock_entries[si]['offset']:stock_entries[si]['offset']+stock_entries[si]['size']]
+        if stock_dtb == data:
+            slot_map[i] = si
+            print(f'  built[{i}] -> stock slot[{si}] (identical)')
+            break
+    else:
+        print(f'  built[{i}] has no identical stock slot; will replace nearest entry')
+
+# Build new image preserving stock entries 0-2 and AVB trail, replacing matched slots
+avb_trail = stock[stock_total:]
+print(f'AVB trail: {len(avb_trail)} bytes')
+
+# Start with stock, replace matched entries
+result = bytearray(stock)
+for built_idx, slot_idx in slot_map.items():
+    data = our_dtbo_data[built_idx]
+    off = stock_entries[slot_idx]['offset']
+    result[off:off+stock_entries[slot_idx]['size']] = data
+    print(f'  Replaced slot[{slot_idx}] with built[{built_idx}] ({len(data)} bytes)')
+
+# For unmatched built DTBOs, skip — no matching stock slot to replace
+unmatched = [i for i in range(len(our_dtbo_data)) if i not in slot_map]
+for built_idx in unmatched:
+    print(f'  SKIP: built[{built_idx}] ({os.path.basename(our_dtbo_paths[built_idx])}) has no matching stock slot')
+
+with open(out_path, 'wb') as f:
+    f.write(result)
+
+print(f'Wrote {len(result)} bytes to {out_path}')
+PYEOF
+        cp "$OUT_DIR/dtbo.img" "$SCRIPT_DIR/dtbo.img"
+        local img_size
+        img_size="$(ls -lh "$OUT_DIR/dtbo.img" | awk '{print $5}')"
+        info "dtbo.img packed ($img_size) -> $SCRIPT_DIR/dtbo.img"
+    elif [ -f "$mkdtbo" ]; then
+        warn "Stock dtbo.img not found at $STOCK_DTBO; packing without stock entries"
         python3 "$mkdtbo" create "$OUT_DIR/dtbo.img" "${dtbo_files[@]}"
         cp "$OUT_DIR/dtbo.img" "$SCRIPT_DIR/dtbo.img"
         local img_size
