@@ -237,6 +237,45 @@ build_kernel() {
     info "Build complete in ${elapsed}s -> $OUT_DIR/arch/arm64/boot/Image.gz-dtb ($kernel_size)"
 }
 
+build_dtbo() {
+    header "Build DTBO"
+    if ! setup_path; then
+        return 1
+    fi
+    info "Building DTBO overlays..."
+    make O="$OUT_DIR" ARCH=$ARCH CC=clang HOSTCC=clang CROSS_COMPILE=aarch64-linux-gnu- \
+        -j"$JOBS" dtbs
+
+    local dtbo_dir="$OUT_DIR/arch/arm64/boot/dts/mediatek"
+    local mkdtbo="$SCRIPT_DIR/mkdtboimg.py"
+
+    local dtbo_files=()
+    for f in "$dtbo_dir"/oppo6768_*.dtbo; do
+        [ -f "$f" ] && dtbo_files+=("$f")
+    done
+
+    if [ ${#dtbo_files[@]} -eq 0 ]; then
+        warn "No DTBO files found in $dtbo_dir"
+        return 1
+    fi
+
+    for f in "${dtbo_files[@]}"; do
+        local sz
+        sz="$(ls -lh "$f" | awk '{print $5}')"
+        info "  $(basename "$f") ($sz)"
+    done
+
+    if [ -f "$mkdtbo" ]; then
+        python3 "$mkdtbo" create "$OUT_DIR/dtbo.img" "${dtbo_files[@]}"
+        cp "$OUT_DIR/dtbo.img" "$SCRIPT_DIR/dtbo.img"
+        local img_size
+        img_size="$(ls -lh "$OUT_DIR/dtbo.img" | awk '{print $5}')"
+        info "dtbo.img packed ($img_size) -> $SCRIPT_DIR/dtbo.img"
+    else
+        warn "mkdtboimg.py not found; DTBOs built but not packed into dtbo.img"
+    fi
+}
+
 # --- Packaging ---
 package_zip() {
     local version="$1"
@@ -252,6 +291,7 @@ package_zip() {
     setup_anykernel
 
     cp "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" "$ANYKERNEL_DIR/Image.gz-dtb"
+    [ -f "$SCRIPT_DIR/dtbo.img" ] && cp "$SCRIPT_DIR/dtbo.img" "$ANYKERNEL_DIR/dtbo.img"
     sed -i "s/^kernel.string=.*/kernel.string=$KERNEL_STRING/" "$ANYKERNEL_DIR/anykernel.sh"
 
     rm -f "$output_path"
@@ -271,6 +311,8 @@ clean_all() {
     rm -rf "$OUT_DIR"
     info "Removing ${ZIP_PREFIX}-v*.zip ..."
     rm -f "${ZIP_PREFIX}-v"*.zip
+    info "Removing dtbo.img ..."
+    rm -f "$SCRIPT_DIR/dtbo.img"
     info "Removing $VERSION_FILE ..."
     rm -f "$VERSION_FILE"
     info "Clean complete"
@@ -416,8 +458,9 @@ show_menu() {
     echo ""
     echo "  [1] Setup Workspace"
     echo "  [2] Build & Package"
-    echo "  [3] Push to Device"
-    echo "  [4] Clean"
+    echo "  [3] Build DTBO"
+    echo "  [4] Push to Device"
+    echo "  [5] Clean"
     echo "  [0] Exit"
     echo ""
 }
@@ -429,8 +472,9 @@ main_menu() {
         case "$choice" in
             1) setup_workspace ;;
             2) build_and_package ;;
-            3) push_to_device ;;
-            4) clean_all ;;
+            3) build_dtbo ;;
+            4) push_to_device ;;
+            5) clean_all ;;
             0) exit 0 ;;
             *) error "Invalid choice" ;;
         esac
