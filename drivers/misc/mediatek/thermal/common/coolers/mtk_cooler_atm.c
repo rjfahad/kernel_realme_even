@@ -32,6 +32,7 @@
 #include <linux/slab.h>
 #include <linux/seq_file.h>
 #include <tscpu_settings.h>
+#include "mtk_cooler_atm.h"
 #include <mt-plat/aee.h>
 #include <linux/uidgid.h>
 #include <ap_thermal_limit.h>
@@ -2052,6 +2053,21 @@ static int decide_ttj(void)
 		/* tscpu_printk("cttj %d cetj %d tpcb %d\n",
 		 *			TARGET_TJ, current_ETJ, curr_tpcb);
 		 */
+	}
+#endif
+
+#if ATM_TTJ_FLOOR > 0
+	/*
+	 * Single choke point for every Tj target source (trip-derived,
+	 * cATMv1 coefficients, cATM+ daemon TTJ). Stock realme UI drives
+	 * targets as low as 56-60C which clamps the big cluster under
+	 * 1GHz during gaming; never honour anything below the floor.
+	 */
+	if (TARGET_TJ < ATM_TTJ_FLOOR) {
+		pr_notice_ratelimited(
+			"[Thermal/TC/ATM] TARGET_TJ %d below floor, raised to %d\n",
+			TARGET_TJ, ATM_TTJ_FLOOR);
+		TARGET_TJ = ATM_TTJ_FLOOR;
 	}
 #endif
 	cpu_target_tj = TARGET_TJ;

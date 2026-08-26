@@ -207,8 +207,18 @@ void atm_ctrl_cmd_from_user(void *nl_data, struct tad_nl_msg_t *ret_msg)
 		break;
 	case TA_DAEMON_CMD_SET_TTJ:
 		{
-			memcpy(&g_tad_ttj, &msg->tad_data[0],
-						sizeof(g_tad_ttj));
+			int ttj;
+
+			memcpy(&ttj, &msg->tad_data[0],
+						sizeof(ttj));
+
+#if ATM_TTJ_FLOOR > 0
+			/* vendor daemon requests TTJ as low as 60000;
+			 * keep stored value at/above the floor */
+			if (ttj < ATM_TTJ_FLOOR)
+				ttj = ATM_TTJ_FLOOR;
+#endif
+			g_tad_ttj = ttj;
 
 			tsta_dprintk(
 				"[%s] g_tad_ttj = %d\n", __func__,
