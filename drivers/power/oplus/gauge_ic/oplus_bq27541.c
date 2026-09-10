@@ -2995,7 +2995,7 @@ static int bq28z610_get_2cell_voltage(void)
 static int get_auth_msg(u8 *source, u8 *rst) {
 	char *str = NULL;
 	int i;
-	str = strstr(boot_command_line, AUTH_TAG);
+	str = strstr(saved_command_line, AUTH_TAG);
 	if (str == NULL) {
 		pr_err("Asynchronous authentication is not supported!!!\n");
 		return -1;
@@ -3086,7 +3086,7 @@ static int bq27541_sha1_hmac_authenticate(struct bq27541_authenticate_data *auth
 	return 0;
 }
 
-static bool __init get_smem_batt_info(oplus_gauge_auth_result *auth, int kk) {
+static bool get_smem_batt_info(oplus_gauge_auth_result *auth, int kk) {
 #ifdef CONFIG_OPLUS_CHARGER_MTK
 	int ret = 0;
 

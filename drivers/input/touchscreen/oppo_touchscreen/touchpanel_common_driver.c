@@ -7492,7 +7492,7 @@ bool is_oem_unlocked(void)
 }
 int __init get_oem_verified_boot_state(void)
 {
-    if (strstr(boot_command_line, "androidboot.verifiedbootstate=orange")) {
+    if (strstr(saved_command_line, "androidboot.verifiedbootstate=orange")) {
         oem_verifiedbootstate = OEM_VERIFIED_BOOT_STATE_UNLOCKED;
     } else {
         oem_verifiedbootstate = OEM_VERIFIED_BOOT_STATE_LOCKED;

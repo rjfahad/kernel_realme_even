@@ -117,10 +117,10 @@ bool __init tp_judge_ic_match(char *tp_ic_name)
 	case 19741:
 	case 19747:
 		pr_info("tp judge ic forward for 19741\n");
-		if (strstr(tp_ic_name, "nf_nt36525b") && strstr(boot_command_line, "nt36525b_hlt")) {
+		if (strstr(tp_ic_name, "nf_nt36525b") && strstr(saved_command_line, "nt36525b_hlt")) {
 			return true;
 		}
-		if (strstr(tp_ic_name, "ili9881h") && strstr(boot_command_line, "ilt9881h")) {
+		if (strstr(tp_ic_name, "ili9881h") && strstr(saved_command_line, "ilt9881h")) {
 			return true;
 		}
 		return false;
@@ -145,7 +145,7 @@ bool __init tp_judge_ic_match(char *tp_ic_name)
 	case 19666:
 	case 19668:
 		pr_info("tp judge ic forward for 19661\n");
-		pr_err("[TP] boot_command_line = %s \n", saved_command_line);
+		pr_err("[TP] saved_command_line = %s \n", saved_command_line);
 		if (strstr(tp_ic_name, "nf_nt36672c") && strstr(saved_command_line, "nt36672c")) {
 			return true;
 		}
@@ -171,13 +171,13 @@ bool __init tp_judge_ic_match(char *tp_ic_name)
 	case 20003:
 	case 20200:
 		pr_info("tp judge ic forward for 19131\n");
-		if (strstr(tp_ic_name, "nf_nt36672c") && strstr(boot_command_line, "nt36672c")) {
+		if (strstr(tp_ic_name, "nf_nt36672c") && strstr(saved_command_line, "nt36672c")) {
 			return true;
 		}
-		if (strstr(tp_ic_name, "hx83112f_nf") && strstr(boot_command_line, "hx83112f")) {
+		if (strstr(tp_ic_name, "hx83112f_nf") && strstr(saved_command_line, "hx83112f")) {
 			return true;
 		}
-		if (strstr(tp_ic_name, "ili7807s") && strstr(boot_command_line, "ili7807s")) {
+		if (strstr(tp_ic_name, "ili7807s") && strstr(saved_command_line, "ili7807s")) {
 			return true;
 		}
 		return false;
@@ -187,10 +187,10 @@ bool __init tp_judge_ic_match(char *tp_ic_name)
     	case 20680: 
 	case 20686:
 		pr_info("tp judge ic forward for 20611\n");
-		if (strstr(tp_ic_name, "nf_nt36672c") && strstr(boot_command_line, "nt36672c")) {
+		if (strstr(tp_ic_name, "nf_nt36672c") && strstr(saved_command_line, "nt36672c")) {
 			return true;
 		}
-		if (strstr(tp_ic_name, "hx83112f_nf") && strstr(boot_command_line, "hx83112f")) {
+		if (strstr(tp_ic_name, "hx83112f_nf") && strstr(saved_command_line, "hx83112f")) {
 			return true;
 		}
 		return false;
@@ -205,13 +205,13 @@ bool __init tp_judge_ic_match(char *tp_ic_name)
 	case 0x206B4:
 		pr_info("[TP] case 20630\n");
 		is_tp_type_got_in_match = true;
-		if (strstr(tp_ic_name, "Goodix-gt9886")&&strstr(boot_command_line, "hx83112f_fhdp_dsi_vdo_dphy_tianma_lcm_drv")) {
+		if (strstr(tp_ic_name, "Goodix-gt9886")&&strstr(saved_command_line, "hx83112f_fhdp_dsi_vdo_dphy_tianma_lcm_drv")) {
 			pr_info("[TP] Goodix-gt9886\n");
 			tp_type = 1;
             g_tp_dev_vendor = TP_SAMSUNG;
             return true;
         }
-		if (strstr(tp_ic_name, "focaltech,fts")&&strstr(boot_command_line, "s68fc01")) {
+		if (strstr(tp_ic_name, "focaltech,fts")&&strstr(saved_command_line, "s68fc01")) {
 			pr_info("[TP] focaltech 3518\n");
 			tp_type = 0;
             g_tp_dev_vendor = TP_SAMSUNG;
@@ -248,7 +248,7 @@ bool  tp_judge_ic_match_commandline(struct panel_info *panel_data)
 	bool ic_matched = false;
 	prj_id = get_project();
 	pr_err("[TP] get_project() = %d \n", prj_id);
-	pr_err("[TP] boot_command_line = %s \n", saved_command_line);
+	pr_err("[TP] saved_command_line = %s \n", saved_command_line);
 
 	for (i = 0; i < panel_data->project_num; i++) {
 		if (prj_id == panel_data->platform_support_project[i]) {
@@ -415,7 +415,7 @@ bool  tp_judge_ic_match_commandline(struct panel_info *panel_data)
 			tp_used_index = himax_83112f;
 			g_tp_dev_vendor = TP_TIANMA;
 		}
-		if (strstr(boot_command_line, "ili7807s")) {
+		if (strstr(saved_command_line, "ili7807s")) {
 			tp_used_index = ili7807s_tm;
 			g_tp_dev_vendor = TP_TIANMA;
 		}

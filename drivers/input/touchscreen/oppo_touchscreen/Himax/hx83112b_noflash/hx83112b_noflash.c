@@ -5457,17 +5457,17 @@ static uint32_t hx83112b_nf_get_fw_id(struct chip_data_hx83112b_nf *chip_info)
 
 static void __init hx83112b_nf_get_lcd_vendor(void)
 {
-    if (strstr(boot_command_line, "1080p_dsi_vdo-1-fps")) {
+    if (strstr(saved_command_line, "1080p_dsi_vdo-1-fps")) {
         hx83112b_nf_lcd_vendor = 1;
-    } else if (strstr(boot_command_line, "1080p_dsi_vdo-2-fps")) {
+    } else if (strstr(saved_command_line, "1080p_dsi_vdo-2-fps")) {
         hx83112b_nf_lcd_vendor = 2;
-    } else if (strstr(boot_command_line, "1080p_dsi_vdo-3-fps")) {
+    } else if (strstr(saved_command_line, "1080p_dsi_vdo-3-fps")) {
         hx83112b_nf_lcd_vendor = 3;
-    } else if (strstr(boot_command_line, "1080p_dsi_vdo-7-fps")) {
+    } else if (strstr(saved_command_line, "1080p_dsi_vdo-7-fps")) {
         hx83112b_nf_lcd_vendor = 7;
-    } else if (strstr(boot_command_line, "1080p_dsi_vdo-8-fps")) {
+    } else if (strstr(saved_command_line, "1080p_dsi_vdo-8-fps")) {
         hx83112b_nf_lcd_vendor = 8;
-    } else if (strstr(boot_command_line, "1080p_dsi_vdo-9-fps")) {
+    } else if (strstr(saved_command_line, "1080p_dsi_vdo-9-fps")) {
         hx83112b_nf_lcd_vendor = 9;
     }
 }
