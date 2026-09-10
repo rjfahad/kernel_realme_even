@@ -1,464 +1,615 @@
 #!/bin/bash
-# Origami Kernel Builder - Badmaneers Edition
-# A versatile script to build, configure, and package the Zenium-Kernel for Realme C25 and Narzo50A (Even) with ease.
-# Define some things
-# Kernel common
-export ARCH=arm64
-export version=
-export LINKER="ld.lld"
-export kver="release-candidate"
-export CODENAME="even"
-export DEVICE="Realme C25 and Narzo50A (${CODENAME})"
-export BUILDER="DumbDragon"
-export BUILD_HOST="localHost"
-export TIMESTAMP=$(date +"%Y%m%d")-$(date +"%H%M%S")
-export KBUILD_COMPILER_STRING=$(./clang/bin/clang -v 2>&1 | head -n 1 | sed 's/(https..*//' | sed 's/ version//')
-export FW="RUI2"
-export zipn="Arise-Kernel-${FW}-${TIMESTAMP}"
-export LLVM=1 
-export LLVM_IAS=1
-# Needed by script
-export PATH="${PWD}/clang/bin:${PATH}"
-PROCS=$(nproc --all)
+#
+# run.sh - Kernel builder for Realme Even (MT6768) - KernelSU-Next (legacy)
+#
+# Usage:
+#   ./run.sh              interactive menu (default)
+#   ./run.sh --build      one-shot build + package (auto version bump)
+#   ./run.sh --force      with --build: overwrite existing zip
+#   ./run.sh --no-package with --build: build only
+#   ./run.sh --clean      remove out/ and flashable zips
+#   ./run.sh --push       push latest zip to device
+#
+# Toolchain resolution order:
+#   1. ./prebuilts-clang-proton  (kdrag0n/proton-clang)
+#   2. ../../../prebuilts/clang/host/linux-x86/mylitle-clang  (LineageOS tree)
+#   3. $KERNEL_CLANG  (explicit override)
+#
 
-# Get the script's own filename
-SCRIPT_NAME=$(basename "$0")
+set -euo pipefail
 
-# Toolchain & AnyKernel repos
-export CLANG_REPO="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86"
-export CLANG_BRANCH="main"
-export ANYKERNEL_REPO="https://github.com/osm0sis/AnyKernel3.git"
-export ANYKERNEL_BRANCH="master"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
-# Text coloring
-NOCOLOR='\033[0m'
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-ORANGE='\033[0;33m'
-BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
-CYAN='\033[0;36m'
-LIGHTGRAY='\033[0;37m'
-DARKGRAY='\033[1;30m'
-LIGHTRED='\033[1;31m'
-LIGHTGREEN='\033[1;32m'
 YELLOW='\033[1;33m'
-LIGHTBLUE='\033[1;34m'
-LIGHTPURPLE='\033[1;35m'
-LIGHTCYAN='\033[1;36m'
-WHITE='\033[1;37m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
 
-# Check permission
-script_permissions=$(stat -c %a "$0")
-if [ "$script_permissions" -lt 777 ]; then
-    echo -e "${RED}error:${NOCOLOR} Don't have enough permission"
-    echo "run 'chmod 0777 $SCRIPT_NAME' and rerun"
-    exit 126
-fi
+info()  { echo -e "${GREEN}[*]${NC} $*"; }
+warn()  { echo -e "${YELLOW}[!]${NC} $*"; }
+error() { echo -e "${RED}[ERROR]${NC} $*"; }
+header(){ echo -e "\n${CYAN}${BOLD}═══ $* ═══${NC}\n"; }
 
-# Check dependencies
-if ! hash make curl bc zip 2>/dev/null; then
-        echo -e "${RED}error:${NOCOLOR} Environment has missing dependencies"
-        echo "Install make, curl, bc, and zip !"
-        exit 127
-fi
+# --- Config ---
+DEFCONFIG="RMX3191_defconfig"
+ARCH="arm64"
+JOBS="$(nproc)"
+OUT_DIR="$SCRIPT_DIR/out"
+ANYKERNEL_DIR="$SCRIPT_DIR/anykernel3"
+ANYKERNEL_REPO="https://github.com/osm0sis/AnyKernel3.git"
+ANYKERNEL_CONFIG="$SCRIPT_DIR/config/anykernel.sh"
+PROTON_DIR="$SCRIPT_DIR/prebuilts-clang-proton"
+PROTON_REPO="https://github.com/kdrag0n/proton-clang.git"
+LINEAGE_CLANG="$(realpath "$SCRIPT_DIR/../../../prebuilts/clang/host/linux-x86/mylitle-clang" 2>/dev/null || true)"
+ZIP_PREFIX="Arise-Even"
+VERSION_FILE="$SCRIPT_DIR/.kernel_zip_version"
+KERNEL_STRING="Arise Even Kernel by rjfahad"
+STOCK_DTBO="${STOCK_DTBO:-$SCRIPT_DIR/stock_dtbo.img}"
 
-# Exit while got interrupt signal
-exit_on_signal_interrupt() {
-    echo -e "\n\n${RED}Got interrupt signal.${NOCOLOR}"
-    exit 130
+FORCE=0
+DO_PACKAGE=1
+MODE="menu"
+
+# --- Version handling ---
+read_version() {
+    local v="1.0"
+    if [ -f "$VERSION_FILE" ]; then
+        v="$(tr -d '[:space:]' < "$VERSION_FILE")"
+    fi
+    [[ "$v" =~ ^[0-9]+(\.[0-9]+)?$ ]] || v="1.0"
+    echo "$v"
 }
-trap exit_on_signal_interrupt SIGINT
 
-help_msg() {
-    echo "Usage: bash origami_kernel_builder.sh --choose=[Function]"
-    echo ""
-    echo "Some functions on Origami Kernel Builder:"
-    echo "1. Build a whole Kernel"
-    echo "2. Regenerate defconfig"
-    echo "3. Open menuconfig"
-    echo "4. Clean"
-    echo ""
-    echo "Place this script inside the Kernel Tree."
+bump_version() {
+    local major="${1%%.*}" minor="${1#*.}"
+    if [ "$major" = "$1" ]; then
+        minor="0"
+    fi
+    [[ "$major" =~ ^[0-9]+$ ]] || major="1"
+    [[ "$minor" =~ ^[0-9]+$ ]] || minor="0"
+    echo "$major.$((minor + 1))"
 }
 
-clone_dependencies() {
+zip_name_for_version() {
+    echo "${ZIP_PREFIX}-v${1}.zip"
+}
 
-    echo -e "${LIGHTBLUE}Checking dependencies...${NOCOLOR}"
-
-    # ===============================
-    # Google Clang
-    # ===============================
-    if [ ! -d "${PWD}/clang" ]; then
-        echo -e "${CYAN}Clang not found. Cloning latest Google Clang...${NOCOLOR}"
-        
-        git clone --depth=1 ${CLANG_REPO} -b ${CLANG_BRANCH} clang-temp || exit 1
-        
-        # Move highest version folder to ./clang
-        LATEST_CLANG=$(ls clang-temp | grep clang-r | sort -V | tail -n1)
-        mv clang-temp/$LATEST_CLANG clang
-        rm -rf clang-temp
-
-        echo -e "${GREEN}Google Clang (${LATEST_CLANG}) cloned.${NOCOLOR}"
+# --- Root solution ---
+detect_root_solution() {
+    if [ -f "$SCRIPT_DIR/KernelSU-Next/kernel/Kconfig" ]; then
+        echo "ksunext"
+    elif git submodule status 2>/dev/null | grep -q '^-.*KernelSU-Next'; then
+        echo "ksunext (uninitialized)"
     else
-        echo -e "${GREEN}Clang already exists. Skipping clone.${NOCOLOR}"
+        echo "none"
     fi
+}
 
-    # ===============================
-    # AnyKernel
-    # ===============================
-    if [ ! -d "${PWD}/anykernel" ]; then
-        echo -e "${CYAN}AnyKernel not found. Cloning...${NOCOLOR}"
-        git clone --depth=1 ${ANYKERNEL_REPO} -b ${ANYKERNEL_BRANCH} anykernel || exit 1
-        echo -e "${GREEN}AnyKernel cloned.${NOCOLOR}"
+ensure_root_solution() {
+    if [ -f "$SCRIPT_DIR/KernelSU-Next/kernel/Kconfig" ]; then
+        return 0
+    fi
+    if git submodule status 2>/dev/null | grep -q '^-.*KernelSU-Next'; then
+        info "Initializing KernelSU-Next submodule..."
+        git submodule update --init --recursive
+    fi
+    if [ ! -f "$SCRIPT_DIR/KernelSU-Next/kernel/Kconfig" ]; then
+        error "KernelSU-Next not available."
+        error "Run menu -> [1] Setup Workspace, or:"
+        error "  git submodule update --init --recursive"
+        return 1
+    fi
+}
+
+# --- Toolchain ---
+detect_toolchain() {
+    if [ -x "$PROTON_DIR/bin/clang" ]; then
+        echo "proton"
+    elif [ -n "$LINEAGE_CLANG" ] && [ -x "$LINEAGE_CLANG/bin/clang" ]; then
+        echo "lineage"
+    elif [ -n "${KERNEL_CLANG:-}" ] && [ -x "$KERNEL_CLANG/bin/clang" ]; then
+        echo "custom"
     else
-        echo -e "${GREEN}AnyKernel already exists. Skipping clone.${NOCOLOR}"
+        echo "none"
     fi
 }
 
-show_defconfigs() {
-    defconfig_path="./arch/${ARCH}/configs"
-
-    # Check if folder exists
-    if [ ! -d "$defconfig_path" ]; then
-        echo -e "${RED}FATAL:${NOCOLOR} Seems not a valid Kernel linux"
-        exit 2
-    fi
-
-    echo -e "Available defconfigs:\n"
-
-    # List defconfigs and assign them to an array
-    defconfigs=($(ls "$defconfig_path"))
-
-    # Display enumerated defconfigs
-    for ((i=0; i<${#defconfigs[@]}; i++)); do
-        echo -e "${LIGHTCYAN}$i: ${defconfigs[i]}${NOCOLOR}"
-    done
-
-    echo ""
-    read -p "Select the defconfig you want to process: " choice
-
-    # Accept either an index or a direct defconfig file name.
-    if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 0 ] && [ "$choice" -lt "${#defconfigs[@]}" ]; then
-        export DEFCONFIG="${defconfigs[choice]}"
-    elif [[ -n "$choice" ]]; then
-        for cfg in "${defconfigs[@]}"; do
-            if [[ "$cfg" == "$choice" ]]; then
-                export DEFCONFIG="$cfg"
-                break
-            fi
-        done
-    fi
-
-    if [[ -n "$DEFCONFIG" ]]; then
-        echo "Selected defconfig: $DEFCONFIG"
-
-        # Detect device variant from defconfig name
-        if [[ "$DEFCONFIG" == *"pascala"* || "$DEFCONFIG" == *"C25"* ]]; then
-            export DEVICE_SUFFIX="-C25"
-            export localversion=${version}-C25
-        else
-            export DEVICE_SUFFIX="-Even"
-            export localversion=${version}-Even
-        fi
-
-        # Update zip name accordingly
-        export zipn="Arise-Kernel${DEVICE_SUFFIX}-${FW}-${TIMESTAMP}"
-    else
-        echo -e "${RED}error:${NOCOLOR} Invalid choice"
-        exit 1
-    fi
+setup_path() {
+    local tc
+    tc="$(detect_toolchain)"
+    case "$tc" in
+        proton)  export PATH="$PROTON_DIR/bin:$PATH"; info "Toolchain: Proton Clang ($PROTON_DIR)" ;;
+        lineage) export PATH="$LINEAGE_CLANG/bin:$PATH"; info "Toolchain: mylitle-clang ($LINEAGE_CLANG)" ;;
+        custom)  export PATH="$KERNEL_CLANG/bin:$PATH"; info "Toolchain: $KERNEL_CLANG" ;;
+        *)
+            error "No toolchain found."
+            error "Install one of:"
+            error "  - ./prebuilts-clang-proton  (menu -> [1] Setup Workspace)"
+            error "  - \$KERNEL_CLANG=<path> ./run.sh"
+            return 1
+            ;;
+    esac
+    clang --version 2>/dev/null | head -1 | sed 's/^/    /'
 }
 
-check_incremental() {
-
-    if [ -f "out/.config" ]; then
-        echo "Previous build detected."
-        read -p "Use incremental build? (Y/n): " ans
-        ans=${ans:-y}
-
-        if [[ "${ans,,}" != "y" ]]; then
-            echo "Cleaning build output..."
-            make clean
-            make mrproper
-            rm -rf out
-        fi
-    fi
-}
-
-compile_kernel() {
-    rm ./out/arch/${ARCH}/boot/Image.gz-dtb 2>/dev/null
-
-    export KBUILD_BUILD_USER=${BUILDER}
-    export KBUILD_BUILD_HOST=${BUILD_HOST}
-    export LOCALVERSION=${localversion}
-
-    make O=out ARCH=${ARCH} ${DEFCONFIG}
-
-    START=$(date +"%s")
-
-    make -j"$PROCS" O=out \
-        ARCH=${ARCH} \
-        LD="${LINKER}" \
-        AR=llvm-ar \
-        AS=llvm-as \
-        NM=llvm-nm \
-        OBJDUMP=llvm-objdump \
-        STRIP=llvm-strip \
-        CC="clang" \
-        CLANG_TRIPLE=aarch64-linux-gnu- \
-        CROSS_COMPILE=aarch64-linux-gnu- \
-        CROSS_COMPILE_ARM32=arm-linux-gnueabihf- \
-        CONFIG_NO_ERROR_ON_MISMATCH=y \
-        CONFIG_DEBUG_SECTION_MISMATCH=y \
-        V=0 2>&1 SKIP_DTBO_CHECK=true | tee out/build.log
-
-    END=$(date +"%s")
-    DIFF=$((END - START))
-    export minutes=$((DIFF / 60))
-    export seconds=$((DIFF % 60))
-}
-
-generate_banner() {
-
-    echo "Generating banner..."
-
-    mkdir -p anykernel
-
-    cat << 'EOF' > anykernel/banner
-        __________ _   _ ___ _   _ __  __ 
-        |__  / ____| \ | |_ _| | | |  \/  |
-          / /|  _| |  \| || || | | | |\/| |
-         / /_| |___| |\  || || |_| | |  | |
-        /____|_____|_| \_|___|\___/|_|  |_|
-                                   
-EOF
-
-}
-
-# ===============================
-# CONFIGURE ANYKERNEL
-# ===============================
-configure_anykernel() {
-
-    ANYKERNEL_SH="anykernel/anykernel.sh"
-
-    echo "Configuring AnyKernel..."
-
-
-    # ===============================
-    # Kernel string
-    # ===============================
-    sed -i "s|kernel.string=.*|kernel.string=Arise-Kernel${version} by ${BUILDER}|g" $ANYKERNEL_SH
-
-    # ===============================
-    # Device names (update existing entry or append new one)
-    # ===============================
-    DEVICES=("RMX3430" "RMX3191" "RMX3193" "RMX3195" "RMX3197" "${CODENAME}")
-    for i in "${!DEVICES[@]}"; do
-        n=$((i + 1))
-        name="${DEVICES[$i]}"
-        if grep -qE "^device\.name${n}=" "$ANYKERNEL_SH"; then
-            sed -i "s|^device\.name${n}=.*|device.name${n}=${name}|g" "$ANYKERNEL_SH"
-        elif [ "$n" -eq 1 ]; then
-            # fresh AnyKernel3 clone has no device.name lines yet;
-            # anchor the first one to the always-present kernel.string=
-            sed -i "/^kernel\.string=/a\\device.name1=${name}" "$ANYKERNEL_SH"
-        else
-            sed -i "/^device\.name$((n - 1))=/a\\device.name${n}=${name}" "$ANYKERNEL_SH"
+# --- Prerequisites ---
+check_prereqs() {
+    local missing=0
+    for cmd in perl zip; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            error "Missing prerequisite: $cmd"
+            missing=1
         fi
     done
+    if [ "$missing" = 1 ]; then
+        error "Install missing prerequisites and retry."
+        error "  (Debian/Ubuntu) sudo apt install perl zip"
+        return 1
+    fi
+    return 0
+}
 
-    # ===============================
-    # Block & slot config
-    # ===============================
-    sed -i "s|^BLOCK=.*|BLOCK=/dev/block/by-name/boot;|g" $ANYKERNEL_SH
-    sed -i "s|^IS_SLOT_DEVICE=.*|IS_SLOT_DEVICE=0;|g" $ANYKERNEL_SH
+# --- WireGuard integration ---
+check_wireguard() {
+    if [ ! -f "$SCRIPT_DIR/drivers/net/wireguard/Kconfig" ] || \
+       [ ! -f "$SCRIPT_DIR/drivers/net/wireguard/Kbuild" ]; then
+        warn "WireGuard source missing at drivers/net/wireguard/"
+        warn "Skipping wireguard checks (build may fail if referenced)."
+        return 0
+    fi
+    if ! grep -q '^CONFIG_WIREGUARD=y' "$SCRIPT_DIR/arch/arm64/configs/$DEFCONFIG"; then
+        error "CONFIG_WIREGUARD=y not set in $DEFCONFIG"
+        return 1
+    fi
+    info "WireGuard: in-tree source + CONFIG_WIREGUARD=y"
+}
 
-    # ===============================
-    # Modules auto detection
-    # ===============================
-    if [ -d "out/lib/modules" ]; then
-        sed -i "s|do.modules=.*|do.modules=1|g" $ANYKERNEL_SH
+# --- Device tree compiler ---
+setup_dtc() {
+    if command -v dtc >/dev/null 2>&1; then
+        return 0
+    fi
+    if [ -x "$OUT_DIR/scripts/dtc/dtc" ]; then
+        export PATH="$OUT_DIR/scripts/dtc:$PATH"
+        return 0
+    fi
+    info "Building host dtc from kernel sources..."
+    make O="$OUT_DIR" ARCH=$ARCH CC=clang HOSTCC=clang CROSS_COMPILE=aarch64-linux-gnu- scripts/dtc/ >/dev/null
+    if [ ! -x "$OUT_DIR/scripts/dtc/dtc" ]; then
+        error "Failed to build in-tree dtc"
+        return 1
+    fi
+    export PATH="$OUT_DIR/scripts/dtc:$PATH"
+}
+
+# --- AnyKernel3 ---
+setup_anykernel() {
+    if [ ! -d "$ANYKERNEL_DIR" ]; then
+        info "Cloning AnyKernel3..."
+        git clone --depth=1 "$ANYKERNEL_REPO" "$ANYKERNEL_DIR"
+    fi
+    if [ -f "$ANYKERNEL_CONFIG" ]; then
+        cp "$ANYKERNEL_CONFIG" "$ANYKERNEL_DIR/anykernel.sh"
+        info "Applied device anykernel.sh template"
     else
-        sed -i "s|do.modules=.*|do.modules=0|g" $ANYKERNEL_SH
+        warn "config/anykernel.sh not found; using stock AnyKernel3 template"
     fi
 }
 
-zip_kernel() {
-
-    IMG_DTB="./out/arch/${ARCH}/boot/Image.gz-dtb"
-    IMG="./out/arch/${ARCH}/boot/Image.gz"
-
-    # Copy correct image
-    if [ -f "$IMG_DTB" ]; then
-        cp "$IMG_DTB" ./anykernel/
-        IMAGE_NAME="Image.gz-dtb"
-    elif [ -f "$IMG" ]; then
-        cp "$IMG" ./anykernel/
-        IMAGE_NAME="Image.gz"
-    else
-        echo "❌ Kernel image not found!"
-        exit 1
+# --- Build ---
+ensure_clean_source() {
+    if [ -f "$SCRIPT_DIR/.config" ] || [ -d "$SCRIPT_DIR/include/config" ]; then
+        warn "Source tree has in-tree build leftovers (.config / include/config)"
+        info "Running 'make mrproper' to clean source tree..."
+        make mrproper CONFIG_KSU_MANUAL_HOOK=y
     fi
-
-    # Generate banner file first
-    generate_banner
-
-    # Configure AnyKernel dynamically
-    configure_anykernel
-
-    # Create zip
-    cd ./anykernel || exit 1
-    zip -r9 "${zipn}.zip" * -x .git README.md *placeholder
-    cd ..
-
-    # Generate checksum
-    checksum=$(sha512sum "./anykernel/${zipn}.zip" | cut -d ' ' -f1)
-
-    # Create target directory
-    mkdir -p ./out/target
-
-    # Remove copied image from anykernel
-    rm -f "./anykernel/${IMAGE_NAME}"
-
-    # Move final zip
-    mv "./anykernel/${zipn}.zip" ./out/target/
-
-    echo "✅ Kernel Zip Created: out/target/${zipn}.zip"
-    echo "🔐 SHA512: ${checksum}"
 }
 
 build_kernel() {
-    clone_dependencies
-    show_defconfigs
+    ensure_clean_source
 
-    echo -e "${LIGHTBLUE}================================="
-    echo "Build Started on ${BUILD_HOST}"
-    echo "Build status: ${kver}"
-    echo "Builder: ${BUILDER}"
-    echo "Device: ${DEVICE}"
-    echo "Kernel Version: $(make kernelversion 2>/dev/null)"
-    echo "Date: $(date)"
-    echo "Zip Name: ${zipn}"
-    echo "Defconfig: ${DEFCONFIG}"
-    echo "Compiler: ${KBUILD_COMPILER_STRING}"
-    echo "Branch: $(git rev-parse --abbrev-ref HEAD)"
-    echo "Last Commit: $(git log --format="%s" -n 1): $(git log --format="%h" -n 1)"
-    echo -e "=================================${NOCOLOR}"
+    check_prereqs
+    check_wireguard
 
-    check_incremental
-    compile_kernel
+    info "Defconfig: $DEFCONFIG"
+    make O="$OUT_DIR" ARCH=$ARCH CC=clang HOSTCC=clang CROSS_COMPILE=aarch64-linux-gnu- "$DEFCONFIG"
 
-    if [ ! -f "./out/arch/${ARCH}/boot/Image.gz-dtb" ] && [ ! -f "./out/arch/${ARCH}/boot/Image.gz" ]; then
+    if grep -q '^CONFIG_WIREGUARD=y' "$OUT_DIR/.config" 2>/dev/null; then
+        info "WireGuard enabled in build config (CONFIG_WIREGUARD=y)"
+    else
+        warn "CONFIG_WIREGUARD not set in out/.config; wireguard will not be built"
+    fi
 
-        echo -e "${LIGHTBLUE}================================="
-        echo -e "${RED}Build failed${LIGHTBLUE} after ${minutes} minutes and ${seconds} seconds"
-        echo "See build log for troubleshooting."
-        echo -e "=================================${NOCOLOR}"
+    setup_dtc
+
+    info "Building kernel with $JOBS jobs..."
+    local start_time
+    start_time="$(date +%s)"
+    make O="$OUT_DIR" ARCH=$ARCH CC=clang HOSTCC=clang CROSS_COMPILE=aarch64-linux-gnu- \
+        -j"$JOBS" Image.gz-dtb
+    local end_time
+    end_time="$(date +%s)"
+    local elapsed=$(( end_time - start_time ))
+    local kernel_size
+    kernel_size="$(ls -lh "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" | awk '{print $5}')"
+    info "Build complete in ${elapsed}s -> $OUT_DIR/arch/arm64/boot/Image.gz-dtb ($kernel_size)"
+}
+
+build_dtbo() {
+    header "Build DTBO"
+    if ! setup_path; then
+        return 1
+    fi
+    info "Building DTBO overlays..."
+    make O="$OUT_DIR" ARCH=$ARCH CC=clang HOSTCC=clang CROSS_COMPILE=aarch64-linux-gnu- \
+        -j"$JOBS" dtbs
+
+    local dtbo_dir="$OUT_DIR/arch/arm64/boot/dts/mediatek"
+    local mkdtbo="$SCRIPT_DIR/mkdtboimg.py"
+
+    local dtbo_files=()
+    for f in "$dtbo_dir"/oppo6768_*.dtbo; do
+        [ -f "$f" ] && dtbo_files+=("$f")
+    done
+
+    if [ ${#dtbo_files[@]} -eq 0 ]; then
+        warn "No DTBO files found in $dtbo_dir"
+        return 1
+    fi
+
+    for f in "${dtbo_files[@]}"; do
+        local sz
+        sz="$(ls -lh "$f" | awk '{print $5}')"
+        info "  $(basename "$f") ($sz)"
+    done
+
+    local stock_dtbo="$STOCK_DTBO"
+    if [ -f "$mkdtbo" ] && [ -f "$stock_dtbo" ]; then
+        python3 - "$OUT_DIR/dtbo.img" "$stock_dtbo" "${dtbo_files[@]}" <<'PYEOF'
+import struct, sys, os, hashlib
+
+out_path = sys.argv[1]
+stock_path = sys.argv[2]
+our_dtbo_paths = sys.argv[3:]
+
+# Read stock image
+with open(stock_path, 'rb') as f:
+    stock = bytearray(f.read())
+
+# Parse stock header
+stock_total = struct.unpack('>I', stock[4:8])[0]
+stock_hdr_size = struct.unpack('>I', stock[8:12])[0]
+stock_entry_size = struct.unpack('>I', stock[12:16])[0]
+stock_entry_count = struct.unpack('>I', stock[16:20])[0]
+stock_entries_off = struct.unpack('>I', stock[20:24])[0]
+stock_page_size = struct.unpack('>I', stock[24:28])[0]
+
+print(f'Stock: {stock_entry_count} entries, total_size={stock_total}, file={len(stock)} bytes')
+
+# Parse stock entries
+stock_entries = []
+for i in range(stock_entry_count):
+    off = stock_entries_off + i * stock_entry_size
+    dt_size = struct.unpack('>I', stock[off:off+4])[0]
+    dt_offset = struct.unpack('>I', stock[off+4:off+8])[0]
+    eid = struct.unpack('>I', stock[off+8:off+12])[0]
+    stock_entries.append({'size': dt_size, 'offset': dt_offset, 'id': eid})
+    print(f'  stock[{i}] id={eid} size={dt_size} offset={dt_offset}')
+
+# Read our built DTBOs and map them to stock entry indices by matching DTB content
+our_dtbo_data = []
+for p in our_dtbo_paths:
+    with open(p, 'rb') as f:
+        our_dtbo_data.append(f.read())
+    print(f'  built: {os.path.basename(p)} ({len(our_dtbo_data[-1])} bytes)')
+
+# Match our DTBOs to stock entry slots
+# Our DTBOs are for: 20761, 2167A, 216AF
+# Stock slots: 0-2 = stock-only, 3 = 2167A, 4 = 216AF
+slot_map = {}
+for i, data in enumerate(our_dtbo_data):
+    for si in range(stock_entry_count):
+        stock_dtb = stock[stock_entries[si]['offset']:stock_entries[si]['offset']+stock_entries[si]['size']]
+        if stock_dtb == data:
+            slot_map[i] = si
+            print(f'  built[{i}] -> stock slot[{si}] (identical)')
+            break
+    else:
+        print(f'  built[{i}] has no identical stock slot; will replace nearest entry')
+
+# Build new image preserving stock entries 0-2 and AVB trail, replacing matched slots
+avb_trail = stock[stock_total:]
+print(f'AVB trail: {len(avb_trail)} bytes')
+
+# Start with stock, replace matched entries
+result = bytearray(stock)
+for built_idx, slot_idx in slot_map.items():
+    data = our_dtbo_data[built_idx]
+    off = stock_entries[slot_idx]['offset']
+    result[off:off+stock_entries[slot_idx]['size']] = data
+    print(f'  Replaced slot[{slot_idx}] with built[{built_idx}] ({len(data)} bytes)')
+
+# For unmatched built DTBOs, skip — no matching stock slot to replace
+unmatched = [i for i in range(len(our_dtbo_data)) if i not in slot_map]
+for built_idx in unmatched:
+    print(f'  SKIP: built[{built_idx}] ({os.path.basename(our_dtbo_paths[built_idx])}) has no matching stock slot')
+
+with open(out_path, 'wb') as f:
+    f.write(result)
+
+print(f'Wrote {len(result)} bytes to {out_path}')
+PYEOF
+        cp "$OUT_DIR/dtbo.img" "$SCRIPT_DIR/dtbo.img"
+        local img_size
+        img_size="$(ls -lh "$OUT_DIR/dtbo.img" | awk '{print $5}')"
+        info "dtbo.img packed ($img_size) -> $SCRIPT_DIR/dtbo.img"
+    elif [ -f "$mkdtbo" ]; then
+        warn "Stock dtbo.img not found at $STOCK_DTBO; packing without stock entries"
+        python3 "$mkdtbo" create "$OUT_DIR/dtbo.img" "${dtbo_files[@]}"
+        cp "$OUT_DIR/dtbo.img" "$SCRIPT_DIR/dtbo.img"
+        local img_size
+        img_size="$(ls -lh "$OUT_DIR/dtbo.img" | awk '{print $5}')"
+        info "dtbo.img packed ($img_size) -> $SCRIPT_DIR/dtbo.img"
+    else
+        warn "mkdtboimg.py not found; DTBOs built but not packed into dtbo.img"
+    fi
+}
+
+# --- Packaging ---
+package_zip() {
+    local version="$1"
+    local zip_name
+    zip_name="$(zip_name_for_version "$version")"
+    local output_path="$SCRIPT_DIR/$zip_name"
+
+    if [ ! -f "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" ]; then
+        error "Image.gz-dtb not found. Build first."
+        return 1
+    fi
+
+    setup_anykernel
+
+    cp "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" "$ANYKERNEL_DIR/Image.gz-dtb"
+    [ -f "$SCRIPT_DIR/dtbo.img" ] && cp "$SCRIPT_DIR/dtbo.img" "$ANYKERNEL_DIR/dtbo.img"
+    sed -i "s/^kernel.string=.*/kernel.string=$KERNEL_STRING/" "$ANYKERNEL_DIR/anykernel.sh"
+
+    rm -f "$output_path"
+    info "Packaging $zip_name..."
+    ( cd "$ANYKERNEL_DIR" && zip -r9 "$output_path" . \
+        -x ".git/*" -x ".github/*" -x "README.md" -x "LICENSE" >/dev/null )
+    printf '%s\n' "$version" > "$VERSION_FILE"
+
+    local zip_size
+    zip_size="$(ls -lh "$output_path" | awk '{print $5}')"
+    info "Flashable zip: $output_path ($zip_size)"
+}
+
+clean_all() {
+    header "Clean"
+    info "Removing $OUT_DIR ..."
+    rm -rf "$OUT_DIR"
+    info "Removing ${ZIP_PREFIX}-v*.zip ..."
+    rm -f "${ZIP_PREFIX}-v"*.zip
+    info "Removing dtbo.img ..."
+    rm -f "$SCRIPT_DIR/dtbo.img"
+    info "Removing $VERSION_FILE ..."
+    rm -f "$VERSION_FILE"
+    info "Clean complete"
+}
+
+# --- 1. Setup Workspace ---
+setup_workspace() {
+    header "Setup Workspace"
+
+    if ! check_prereqs; then
+        return 1
+    fi
+
+    check_wireguard
+
+    if [ "$(detect_toolchain)" = "none" ]; then
+        info "Cloning Proton Clang..."
+        git clone --depth=1 "$PROTON_REPO" "$PROTON_DIR"
+        if [ -f "$PROTON_DIR/bin/ld" ]; then
+            mv "$PROTON_DIR/bin/ld" "$PROTON_DIR/bin/ld.bak"
+            info "Renamed Proton ld -> ld.bak"
+        fi
+        info "Proton Clang installed"
+    else
+        info "Toolchain already present ($(detect_toolchain))"
+    fi
+
+    setup_anykernel
+
+    if ! ensure_root_solution; then
+        return 1
+    fi
+
+    if setup_path; then
+        info "Workspace setup complete"
+    else
+        error "Workspace setup failed"
+    fi
+}
+
+# --- 2. Build & Package ---
+build_and_package() {
+    header "Build & Package"
+
+    if ! setup_path; then
+        return 1
+    fi
+
+    if ! ensure_root_solution; then
+        return 1
+    fi
+
+    local root_sol build_version zip_name output_path
+    root_sol="$(detect_root_solution)"
+    build_version="$(read_version)"
+    zip_name="$(zip_name_for_version "$build_version")"
+    output_path="$SCRIPT_DIR/$zip_name"
+
+    info "Root solution: $root_sol"
+    info "Output: $zip_name"
+    echo ""
+
+    if [ -f "$output_path" ]; then
+        warn "Version v${build_version} already exists: $zip_name"
+        while true; do
+            read -rp "  [v] bump version  [o] overwrite  [c] cancel: " version_choice
+            case "$version_choice" in
+                v|V)
+                    while :; do
+                        build_version="$(bump_version "$build_version")"
+                        zip_name="$(zip_name_for_version "$build_version")"
+                        output_path="$SCRIPT_DIR/$zip_name"
+                        if [ ! -f "$output_path" ]; then
+                            break
+                        fi
+                    done
+                    info "Using version v${build_version}"
+                    info "Output: $zip_name"
+                    break
+                    ;;
+                o|O)
+                    rm -f "$output_path"
+                    info "Overwriting existing zip"
+                    break
+                    ;;
+                c|C)
+                    return 0
+                    ;;
+                *)
+                    warn "Please choose v, o, or c."
+                    ;;
+            esac
+        done
+    fi
+
+    build_kernel
+    package_zip "$build_version"
+}
+
+# --- 3. Push to Device ---
+push_to_device() {
+    header "Push to Device"
+
+    if ! adb devices 2>/dev/null | grep -q "device$"; then
+        error "No device connected"
+        return 1
+    fi
+
+    local version
+    version="$(read_version)"
+    local zip_name
+    zip_name="$(zip_name_for_version "$version")"
+    local zip_path="$SCRIPT_DIR/$zip_name"
+
+    if [ ! -f "$zip_path" ]; then
+        error "$zip_name not found. Build & Package first."
+        return 1
+    fi
+
+    info "Pushing $zip_name to /sdcard/..."
+    adb push "$zip_path" /sdcard/
+    info "Done. Flash from recovery."
+}
+
+# --- Menu ---
+show_menu() {
+    local compiler root_sol build_version wg_status
+    compiler="$(detect_toolchain)"
+    root_sol="$(detect_root_solution)"
+    build_version="$(read_version)"
+    if [ -d "$SCRIPT_DIR/drivers/net/wireguard" ]; then
+        wg_status="in-tree"
+    else
+        wg_status="missing"
+    fi
+
+    header "Arise Even Kernel Builder"
+    echo -e "  Compiler:   ${BOLD}${compiler}${NC}"
+    echo -e "  Root:       ${BOLD}${root_sol}${NC}"
+    echo -e "  WireGuard:  ${BOLD}${wg_status}${NC}"
+    echo -e "  Zip Ver:    ${BOLD}v${build_version}${NC}"
+    echo -e "  Branch:     ${BOLD}$(git branch --show-current 2>/dev/null || echo detached)${NC}"
+    echo ""
+    echo "  [1] Setup Workspace"
+    echo "  [2] Build & Package"
+    echo "  [3] Build DTBO"
+    echo "  [4] Push to Device"
+    echo "  [5] Clean"
+    echo "  [0] Exit"
+    echo ""
+}
+
+main_menu() {
+    while true; do
+        show_menu
+        read -rp "  > " choice
+        case "$choice" in
+            1) setup_workspace ;;
+            2) build_and_package ;;
+            3) build_dtbo ;;
+            4) push_to_device ;;
+            5) clean_all ;;
+            0) exit 0 ;;
+            *) error "Invalid choice" ;;
+        esac
+        echo ""
+        read -rp "  Press Enter to continue..."
+    done
+}
+
+# --- Main ---
+one_shot_build() {
+    local version
+    version="$(read_version)"
+
+    if ! setup_path; then
         exit 1
     fi
 
-    zip_kernel
+    if ! ensure_root_solution; then
+        exit 1
+    fi
 
-    echo -e "${LIGHTBLUE}================================="
-    echo "Build took ${minutes} minutes and ${seconds} seconds."
-    echo "SHA512: ${checksum}"
-    echo "Kernel zip: ${zipn}.zip"
-    echo -e "=================================${NOCOLOR}"
+    if [ "$DO_PACKAGE" = 1 ] && [ "$FORCE" = 0 ] && [ -f "$(zip_name_for_version "$version")" ]; then
+        warn "v${version} zip already exists, bumping to next version"
+        version="$(bump_version "$version")"
+        info "Using version v${version}"
+    fi
+
+    build_kernel
+
+    if [ "$DO_PACKAGE" = 1 ]; then
+        package_zip "$version"
+    fi
 }
 
-regen_defconfig() {
-show_defconfigs
-make O=out ARCH=${ARCH} ${DEFCONFIG}
-cp -rf ./out/.config ./arch/${ARCH}/configs/${DEFCONFIG}
-}
-
-open_menuconfig() {
-show_defconfigs
-make O=out ARCH=${ARCH} ${DEFCONFIG}
-echo -e "${LIGHTGREEN}Note: Make sure you save the config with name '.config'"
-echo -e "      else the defconfig will not saved automatically.${NOCOLOR}"
-local count=3
-while [ $count -gt 0 ]; do
-    echo -ne -e "${LIGHTCYAN}menuconfig will be opened in $count seconds... \r${NOCOLOR}"
-    sleep 1
-    ((count--))
-done
-make O=out menuconfig
-cp -rf ./out/.config ./arch/${ARCH}/configs/${DEFCONFIG}
-}
-
-execute_operation() {
-
-   loop_helper() {
-      read -p "Press enter to continue or type 0 for Quit: " a1
-      clear
-      if [[ "$a1" == "0" ]]; then
-          exit 0
-      else
-          bash "$0"
-      fi
-   }
-
-   case "$1" in
-        1) clear
-            build_kernel
-            loop_helper
-            ;;
-        2) clear
-            regen_defconfig
-            loop_helper
-             ;;
-        3) clear
-             open_menuconfig
-             loop_helper
-             ;;
-        4) clear
-            make clean && make mrproper
-            loop_helper
-            ;;
-        5) exit 0 && clear ;;
-        6) help_msg ;;
-        *) echo -e "${RED}error:${NOCOLOR} Invalid selection." && exit 1 ;;
-    esac
-}
-
-if [ $# -eq 0 ]; then
-    clear
-    echo -e "${LIGHTCYAN}What do you want to do today?"
-    echo ""
-    echo "1. Build a whole Kernel"
-    echo "2. Regenerate defconfig"
-    echo "3. Open menuconfig"
-    echo "4. Clean"
-    echo "5. Quit"
-    echo -e "${NOCOLOR}"
-    read -p "Choice the number: " choice
-else
-    case "$1" in
-        --choose=1)
-            choice=1
-            ;;
-        --choose=2)
-            choice=2
-            ;;
-        --choose=3)
-            choice=3
-            ;;
-        --choose=4)
-            choice=4
-            ;;
-        --help)
-            choice=6
-            ;;
+for arg in "$@"; do
+    case "$arg" in
+        --build)      MODE="build" ;;
+        --force)      FORCE=1 ;;
+        --no-package) DO_PACKAGE=0 ;;
+        --clean)      MODE="clean" ;;
+        --push)       MODE="push" ;;
+        --menu)       MODE="menu" ;;
         *)
-            echo -e "${RED}error:${NOCOLOR} Not a valid argument"
-            echo "Try 'bash origami_kernel_builder.sh --help' for more information."
+            error "Unknown argument: $arg"
+            echo "Usage: $0 [--build] [--force] [--no-package] [--clean] [--push] [--menu]"
             exit 1
             ;;
     esac
-fi
+done
 
-# Main script logic
-execute_operation "$choice"
+case "$MODE" in
+    build) one_shot_build ;;
+    clean) clean_all ;;
+    push)  push_to_device ;;
+    menu)  main_menu ;;
+esac
