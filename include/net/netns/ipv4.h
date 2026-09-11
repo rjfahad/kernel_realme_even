@@ -18,6 +18,8 @@ struct fib_rules_ops;
 struct hlist_head;
 struct fib_table;
 struct sock;
+struct tcp_congestion_ops;
+struct tcp_fastopen_context;
 struct local_ports {
 	seqlock_t	lock;
 	int		range[2];
@@ -132,6 +134,13 @@ struct netns_ipv4 {
 	int sysctl_tcp_early_retrans;
 	struct inet_timewait_death_row tcp_death_row;
 	int sysctl_max_syn_backlog;
+	int sysctl_tcp_fastopen;
+	const struct tcp_congestion_ops __rcu	*tcp_congestion_control;
+	struct tcp_fastopen_context __rcu *tcp_fastopen_ctx;
+	spinlock_t tcp_fastopen_ctx_lock;
+	unsigned int sysctl_tcp_fastopen_blackhole_timeout;
+	atomic_t tfo_active_disable_times;
+	unsigned long tfo_active_disable_stamp;
 
 	#ifdef OPLUS_BUG_STABILITY
 	//PengHao@CONNECTIVITY.WIFI.INTERNET.1854960,2019/03/30,add for disable tcp random timestamp,some networks limit tcp syn before login

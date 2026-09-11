@@ -12,7 +12,6 @@
  */
 
 #include <trace/events/sched.h>
-#include <trace/events/mtk_events.h>
 
 #ifdef CONFIG_MTK_DRAMC
 #include <mtk_dramc.h>
@@ -27,6 +26,7 @@
 #include <linux/module.h>
 #ifndef __CHECKER__
 #define CREATE_TRACE_POINTS
+#include <trace/events/mtk_events.h>
 #include "perf_tracker_trace.h"
 #endif
 

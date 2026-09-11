@@ -839,14 +839,14 @@ struct move_extent {
  * affected filesystem before 2242.
  */
 
-static inline __le32 ext4_encode_extra_time(struct timespec *time)
+static inline __le32 ext4_encode_extra_time(struct timespec64 *time)
 {
 	u32 extra = sizeof(time->tv_sec) > 4 ?
 		((time->tv_sec - (s32)time->tv_sec) >> 32) & EXT4_EPOCH_MASK : 0;
 	return cpu_to_le32(extra | (time->tv_nsec << EXT4_EPOCH_BITS));
 }
 
-static inline void ext4_decode_extra_time(struct timespec *time, __le32 extra)
+static inline void ext4_decode_extra_time(struct timespec64 *time, __le32 extra)
 {
 	if (unlikely(sizeof(time->tv_sec) > 4 &&
 			(extra & cpu_to_le32(EXT4_EPOCH_MASK)))) {
@@ -1037,9 +1037,9 @@ struct ext4_inode_info {
 
 	/*
 	 * File creation time. Its function is same as that of
-	 * struct timespec i_{a,c,m}time in the generic inode.
+	 * struct timespec64 i_{a,c,m}time in the generic inode.
 	 */
-	struct timespec i_crtime;
+	struct timespec64 i_crtime;
 
 	/* mballoc */
 	struct list_head i_prealloc_list;
@@ -3202,8 +3202,8 @@ static inline void ext4_update_time(struct ext4_sb_info *sbi)
 
 static inline bool ext4_time_over(struct ext4_sb_info *sbi)
 {
-	struct timespec ts = {sbi->interval_time, 0};
-	unsigned long interval = timespec_to_jiffies(&ts);
+	struct timespec64 ts = {sbi->interval_time, 0};
+	unsigned long interval = timespec64_to_jiffies(&ts);
 
 	return time_after(jiffies, sbi->last_time + interval);
 }

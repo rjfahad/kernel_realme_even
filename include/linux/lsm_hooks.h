@@ -429,6 +429,15 @@
  *	to abort the copy up. Note that the caller is responsible for reading
  *	and writing the xattrs as this hook is merely a filter.
  *
+ * Security hooks for kernfs node operations
+ *
+ * @kernfs_init_security
+ *	Initialize the security context of a newly created kernfs node based
+ *	on its own and its parent's attributes.
+ *
+ *	@kn_dir the parent kernfs node
+ *	@kn the new child kernfs node
+ *
  * Security hooks for file operations
  *
  * @file_permission:
@@ -560,6 +569,10 @@
  *	@new points to the new credentials.
  *	@old points to the original credentials.
  *	Transfer data from original creds to new creds
+ * @cred_getsecid:
+ *	Retrieve the security identifier of the cred structure @c
+ *	@c contains the credentials, secid will be placed into @secid.
+ *	In case of failure, @secid will be set to zero.
  * @kernel_act_as:
  *	Set the credentials for a kernel service to act as (subjective context).
  *	@new points to the credentials to be modified.
@@ -1235,7 +1248,7 @@
  *	@cred contains the credentials to use.
  *	@ns contains the user namespace we want the capability in
  *	@cap contains the capability <include/linux/capability.h>.
- *	@audit contains whether to write an audit message or not
+ *	@opts contains options for the capable check <include/linux/security.h>
  *	Return 0 if the capability is granted for @tsk.
  * @syslog:
  *	Check permission before accessing the kernel message ring or changing
@@ -1391,6 +1404,11 @@
  * @bpf_prog_free_security:
  *	Clean up the security information stored inside bpf prog.
  *
+ * @locked_down
+ *     Determine whether a kernel feature that potentially enables arbitrary
+ *     code execution in kernel space should be permitted.
+ *
+ *     @what: kernel feature being accessed
  */
 union security_list_options {
 	int (*binder_set_context_mgr)(struct task_struct *mgr);
@@ -1411,8 +1429,10 @@ union security_list_options {
 			const kernel_cap_t *effective,
 			const kernel_cap_t *inheritable,
 			const kernel_cap_t *permitted);
-	int (*capable)(const struct cred *cred, struct user_namespace *ns,
-			int cap, int audit);
+	int (*capable)(const struct cred *cred,
+			struct user_namespace *ns,
+			int cap,
+			unsigned int opts);
 	int (*quotactl)(int cmds, int type, int id, struct super_block *sb);
 	int (*quota_on)(struct dentry *dentry);
 	int (*syslog)(int type);
@@ -1479,6 +1499,9 @@ union security_list_options {
 					const struct qstr *qstr,
 					const char **name, void **value,
 					size_t *len);
+	int (*inode_init_security_anon)(struct inode *inode,
+					const struct qstr *qstr,
+					const struct inode *context_inode);
 	int (*inode_create)(struct inode *dir, struct dentry *dentry,
 				umode_t mode);
 	int (*inode_link)(struct dentry *old_dentry, struct inode *dir,
@@ -1540,7 +1563,7 @@ union security_list_options {
 	int (*file_send_sigiotask)(struct task_struct *tsk,
 					struct fown_struct *fown, int sig);
 	int (*file_receive)(struct file *file);
-	int (*file_open)(struct file *file, const struct cred *cred);
+	int (*file_open)(struct file *file);
 
 	int (*task_alloc)(struct task_struct *task, unsigned long clone_flags);
 	void (*task_free)(struct task_struct *task);
@@ -1549,12 +1572,14 @@ union security_list_options {
 	int (*cred_prepare)(struct cred *new, const struct cred *old,
 				gfp_t gfp);
 	void (*cred_transfer)(struct cred *new, const struct cred *old);
+	void (*cred_getsecid)(const struct cred *c, u32 *secid);
 	int (*kernel_act_as)(struct cred *new, u32 secid);
 	int (*kernel_create_files_as)(struct cred *new, struct inode *inode);
 	int (*kernel_module_request)(char *kmod_name);
 	int (*kernel_read_file)(struct file *file, enum kernel_read_file_id id);
 	int (*kernel_post_read_file)(struct file *file, char *buf, loff_t size,
 				     enum kernel_read_file_id id);
+	int (*kernel_load_data)(enum kernel_load_data_id id);
 	int (*task_fix_setuid)(struct cred *new, const struct cred *old,
 				int flags);
 	int (*task_setpgid)(struct task_struct *p, pid_t pgid);
@@ -1572,7 +1597,7 @@ union security_list_options {
 	int (*task_getscheduler)(struct task_struct *p);
 	int (*task_movememory)(struct task_struct *p);
 	int (*task_kill)(struct task_struct *p, struct siginfo *info,
-				int sig, u32 secid);
+				int sig, const struct cred *cred);
 	int (*task_prctl)(int option, unsigned long arg2, unsigned long arg3,
 				unsigned long arg4, unsigned long arg5);
 	void (*task_to_inode)(struct task_struct *p, struct inode *inode);
@@ -1583,28 +1608,28 @@ union security_list_options {
 	int (*msg_msg_alloc_security)(struct msg_msg *msg);
 	void (*msg_msg_free_security)(struct msg_msg *msg);
 
-	int (*msg_queue_alloc_security)(struct msg_queue *msq);
-	void (*msg_queue_free_security)(struct msg_queue *msq);
-	int (*msg_queue_associate)(struct msg_queue *msq, int msqflg);
-	int (*msg_queue_msgctl)(struct msg_queue *msq, int cmd);
-	int (*msg_queue_msgsnd)(struct msg_queue *msq, struct msg_msg *msg,
+	int (*msg_queue_alloc_security)(struct kern_ipc_perm *msq);
+	void (*msg_queue_free_security)(struct kern_ipc_perm *msq);
+	int (*msg_queue_associate)(struct kern_ipc_perm *msq, int msqflg);
+	int (*msg_queue_msgctl)(struct kern_ipc_perm *msq, int cmd);
+	int (*msg_queue_msgsnd)(struct kern_ipc_perm *msq, struct msg_msg *msg,
 				int msqflg);
-	int (*msg_queue_msgrcv)(struct msg_queue *msq, struct msg_msg *msg,
+	int (*msg_queue_msgrcv)(struct kern_ipc_perm *msq, struct msg_msg *msg,
 				struct task_struct *target, long type,
 				int mode);
 
-	int (*shm_alloc_security)(struct shmid_kernel *shp);
-	void (*shm_free_security)(struct shmid_kernel *shp);
-	int (*shm_associate)(struct shmid_kernel *shp, int shmflg);
-	int (*shm_shmctl)(struct shmid_kernel *shp, int cmd);
-	int (*shm_shmat)(struct shmid_kernel *shp, char __user *shmaddr,
+	int (*shm_alloc_security)(struct kern_ipc_perm *shp);
+	void (*shm_free_security)(struct kern_ipc_perm *shp);
+	int (*shm_associate)(struct kern_ipc_perm *shp, int shmflg);
+	int (*shm_shmctl)(struct kern_ipc_perm *shp, int cmd);
+	int (*shm_shmat)(struct kern_ipc_perm *shp, char __user *shmaddr,
 				int shmflg);
 
-	int (*sem_alloc_security)(struct sem_array *sma);
-	void (*sem_free_security)(struct sem_array *sma);
-	int (*sem_associate)(struct sem_array *sma, int semflg);
-	int (*sem_semctl)(struct sem_array *sma, int cmd);
-	int (*sem_semop)(struct sem_array *sma, struct sembuf *sops,
+	int (*sem_alloc_security)(struct kern_ipc_perm *sma);
+	void (*sem_free_security)(struct kern_ipc_perm *sma);
+	int (*sem_associate)(struct kern_ipc_perm *sma, int semflg);
+	int (*sem_semctl)(struct kern_ipc_perm *sma, int cmd);
+	int (*sem_semop)(struct kern_ipc_perm *sma, struct sembuf *sops,
 				unsigned nsops, int alter);
 
 	int (*netlink_send)(struct sock *sk, struct sk_buff *skb);
@@ -1631,6 +1656,7 @@ union security_list_options {
 	int (*socket_create)(int family, int type, int protocol, int kern);
 	int (*socket_post_create)(struct socket *sock, int family, int type,
 					int protocol, int kern);
+	int (*socket_socketpair)(struct socket *socka, struct socket *sockb);
 	int (*socket_bind)(struct socket *sock, struct sockaddr *address,
 				int addrlen);
 	int (*socket_connect)(struct socket *sock, struct sockaddr *address,
@@ -1673,6 +1699,12 @@ union security_list_options {
 	int (*tun_dev_attach_queue)(void *security);
 	int (*tun_dev_attach)(struct sock *sk, void *security);
 	int (*tun_dev_open)(void *security);
+	int (*sctp_assoc_request)(struct sctp_endpoint *ep,
+				  struct sk_buff *skb);
+	int (*sctp_bind_connect)(struct sock *sk, int optname,
+				 struct sockaddr *address, int addrlen);
+	void (*sctp_sk_clone)(struct sctp_endpoint *ep, struct sock *sk,
+			      struct sock *newsk);
 #endif	/* CONFIG_SECURITY_NETWORK */
 
 #ifdef CONFIG_SECURITY_INFINIBAND
@@ -1743,242 +1775,254 @@ union security_list_options {
 	int (*perf_event_write)(struct perf_event *event);
 
 #endif
+	int (*locked_down)(enum lockdown_reason what);
+	int (*kernfs_init_security)(struct kernfs_node *kn_dir,
+				   struct kernfs_node *kn);
 };
 
 struct security_hook_heads {
-	struct list_head binder_set_context_mgr;
-	struct list_head binder_transaction;
-	struct list_head binder_transfer_binder;
-	struct list_head binder_transfer_file;
-	struct list_head ptrace_access_check;
-	struct list_head ptrace_traceme;
-	struct list_head capget;
-	struct list_head capset;
-	struct list_head capable;
-	struct list_head quotactl;
-	struct list_head quota_on;
-	struct list_head syslog;
-	struct list_head settime;
-	struct list_head vm_enough_memory;
-	struct list_head bprm_set_creds;
-	struct list_head bprm_check_security;
-	struct list_head bprm_committing_creds;
-	struct list_head bprm_committed_creds;
-	struct list_head sb_alloc_security;
-	struct list_head sb_free_security;
-	struct list_head sb_copy_data;
-	struct list_head sb_remount;
-	struct list_head sb_kern_mount;
-	struct list_head sb_show_options;
-	struct list_head sb_statfs;
-	struct list_head sb_mount;
-	struct list_head sb_umount;
-	struct list_head sb_pivotroot;
-	struct list_head sb_set_mnt_opts;
-	struct list_head sb_clone_mnt_opts;
-	struct list_head sb_parse_opts_str;
-	struct list_head dentry_init_security;
-	struct list_head dentry_create_files_as;
+	struct hlist_head binder_set_context_mgr;
+	struct hlist_head binder_transaction;
+	struct hlist_head binder_transfer_binder;
+	struct hlist_head binder_transfer_file;
+	struct hlist_head ptrace_access_check;
+	struct hlist_head ptrace_traceme;
+	struct hlist_head capget;
+	struct hlist_head capset;
+	struct hlist_head capable;
+	struct hlist_head quotactl;
+	struct hlist_head quota_on;
+	struct hlist_head syslog;
+	struct hlist_head settime;
+	struct hlist_head vm_enough_memory;
+	struct hlist_head bprm_set_creds;
+	struct hlist_head bprm_check_security;
+	struct hlist_head bprm_committing_creds;
+	struct hlist_head bprm_committed_creds;
+	struct hlist_head sb_alloc_security;
+	struct hlist_head sb_free_security;
+	struct hlist_head sb_copy_data;
+	struct hlist_head sb_remount;
+	struct hlist_head sb_kern_mount;
+	struct hlist_head sb_show_options;
+	struct hlist_head sb_statfs;
+	struct hlist_head sb_mount;
+	struct hlist_head sb_umount;
+	struct hlist_head sb_pivotroot;
+	struct hlist_head sb_set_mnt_opts;
+	struct hlist_head sb_clone_mnt_opts;
+	struct hlist_head sb_parse_opts_str;
+	struct hlist_head dentry_init_security;
+	struct hlist_head dentry_create_files_as;
 #ifdef CONFIG_SECURITY_PATH
-	struct list_head path_unlink;
-	struct list_head path_mkdir;
-	struct list_head path_rmdir;
-	struct list_head path_mknod;
-	struct list_head path_truncate;
-	struct list_head path_symlink;
-	struct list_head path_link;
-	struct list_head path_rename;
-	struct list_head path_chmod;
-	struct list_head path_chown;
-	struct list_head path_chroot;
+	struct hlist_head path_unlink;
+	struct hlist_head path_mkdir;
+	struct hlist_head path_rmdir;
+	struct hlist_head path_mknod;
+	struct hlist_head path_truncate;
+	struct hlist_head path_symlink;
+	struct hlist_head path_link;
+	struct hlist_head path_rename;
+	struct hlist_head path_chmod;
+	struct hlist_head path_chown;
+	struct hlist_head path_chroot;
 #endif
-	struct list_head inode_alloc_security;
-	struct list_head inode_free_security;
-	struct list_head inode_init_security;
-	struct list_head inode_create;
-	struct list_head inode_link;
-	struct list_head inode_unlink;
-	struct list_head inode_symlink;
-	struct list_head inode_mkdir;
-	struct list_head inode_rmdir;
-	struct list_head inode_mknod;
-	struct list_head inode_rename;
-	struct list_head inode_readlink;
-	struct list_head inode_follow_link;
-	struct list_head inode_permission;
-	struct list_head inode_setattr;
-	struct list_head inode_getattr;
-	struct list_head inode_setxattr;
-	struct list_head inode_post_setxattr;
-	struct list_head inode_getxattr;
-	struct list_head inode_listxattr;
-	struct list_head inode_removexattr;
-	struct list_head inode_need_killpriv;
-	struct list_head inode_killpriv;
-	struct list_head inode_getsecurity;
-	struct list_head inode_setsecurity;
-	struct list_head inode_listsecurity;
-	struct list_head inode_getsecid;
-	struct list_head inode_copy_up;
-	struct list_head inode_copy_up_xattr;
-	struct list_head file_permission;
-	struct list_head file_alloc_security;
-	struct list_head file_free_security;
-	struct list_head file_ioctl;
-	struct list_head file_ioctl_compat;
-	struct list_head mmap_addr;
-	struct list_head mmap_file;
-	struct list_head file_mprotect;
-	struct list_head file_lock;
-	struct list_head file_fcntl;
-	struct list_head file_set_fowner;
-	struct list_head file_send_sigiotask;
-	struct list_head file_receive;
-	struct list_head file_open;
-	struct list_head task_alloc;
-	struct list_head task_free;
-	struct list_head cred_alloc_blank;
-	struct list_head cred_free;
-	struct list_head cred_prepare;
-	struct list_head cred_transfer;
-	struct list_head kernel_act_as;
-	struct list_head kernel_create_files_as;
-	struct list_head kernel_read_file;
-	struct list_head kernel_post_read_file;
-	struct list_head kernel_module_request;
-	struct list_head task_fix_setuid;
-	struct list_head task_setpgid;
-	struct list_head task_getpgid;
-	struct list_head task_getsid;
-	struct list_head task_getsecid;
-	struct list_head task_setnice;
-	struct list_head task_setioprio;
-	struct list_head task_getioprio;
-	struct list_head task_prlimit;
-	struct list_head task_setrlimit;
-	struct list_head task_setscheduler;
-	struct list_head task_getscheduler;
-	struct list_head task_movememory;
-	struct list_head task_kill;
-	struct list_head task_prctl;
-	struct list_head task_to_inode;
-	struct list_head ipc_permission;
-	struct list_head ipc_getsecid;
-	struct list_head msg_msg_alloc_security;
-	struct list_head msg_msg_free_security;
-	struct list_head msg_queue_alloc_security;
-	struct list_head msg_queue_free_security;
-	struct list_head msg_queue_associate;
-	struct list_head msg_queue_msgctl;
-	struct list_head msg_queue_msgsnd;
-	struct list_head msg_queue_msgrcv;
-	struct list_head shm_alloc_security;
-	struct list_head shm_free_security;
-	struct list_head shm_associate;
-	struct list_head shm_shmctl;
-	struct list_head shm_shmat;
-	struct list_head sem_alloc_security;
-	struct list_head sem_free_security;
-	struct list_head sem_associate;
-	struct list_head sem_semctl;
-	struct list_head sem_semop;
-	struct list_head netlink_send;
-	struct list_head d_instantiate;
-	struct list_head getprocattr;
-	struct list_head setprocattr;
-	struct list_head ismaclabel;
-	struct list_head secid_to_secctx;
-	struct list_head secctx_to_secid;
-	struct list_head release_secctx;
-	struct list_head inode_invalidate_secctx;
-	struct list_head inode_notifysecctx;
-	struct list_head inode_setsecctx;
-	struct list_head inode_getsecctx;
+	struct hlist_head inode_alloc_security;
+	struct hlist_head inode_free_security;
+	struct hlist_head inode_init_security;
+	struct hlist_head inode_init_security_anon;
+	struct hlist_head inode_create;
+	struct hlist_head inode_link;
+	struct hlist_head inode_unlink;
+	struct hlist_head inode_symlink;
+	struct hlist_head inode_mkdir;
+	struct hlist_head inode_rmdir;
+	struct hlist_head inode_mknod;
+	struct hlist_head inode_rename;
+	struct hlist_head inode_readlink;
+	struct hlist_head inode_follow_link;
+	struct hlist_head inode_permission;
+	struct hlist_head inode_setattr;
+	struct hlist_head inode_getattr;
+	struct hlist_head inode_setxattr;
+	struct hlist_head inode_post_setxattr;
+	struct hlist_head inode_getxattr;
+	struct hlist_head inode_listxattr;
+	struct hlist_head inode_removexattr;
+	struct hlist_head inode_need_killpriv;
+	struct hlist_head inode_killpriv;
+	struct hlist_head inode_getsecurity;
+	struct hlist_head inode_setsecurity;
+	struct hlist_head inode_listsecurity;
+	struct hlist_head inode_getsecid;
+	struct hlist_head inode_copy_up;
+	struct hlist_head inode_copy_up_xattr;
+	struct hlist_head file_permission;
+	struct hlist_head file_alloc_security;
+	struct hlist_head file_free_security;
+	struct hlist_head file_ioctl;
+	struct hlist_head file_ioctl_compat;
+	struct hlist_head mmap_addr;
+	struct hlist_head mmap_file;
+	struct hlist_head file_mprotect;
+	struct hlist_head file_lock;
+	struct hlist_head file_fcntl;
+	struct hlist_head file_set_fowner;
+	struct hlist_head file_send_sigiotask;
+	struct hlist_head file_receive;
+	struct hlist_head file_open;
+	struct hlist_head task_alloc;
+	struct hlist_head task_free;
+	struct hlist_head cred_alloc_blank;
+	struct hlist_head cred_free;
+	struct hlist_head cred_prepare;
+	struct hlist_head cred_transfer;
+	struct hlist_head cred_getsecid;
+	struct hlist_head kernel_act_as;
+	struct hlist_head kernel_create_files_as;
+	struct hlist_head kernel_read_file;
+	struct hlist_head kernel_post_read_file;
+	struct hlist_head kernel_load_data;
+	struct hlist_head kernel_module_request;
+	struct hlist_head task_fix_setuid;
+	struct hlist_head task_setpgid;
+	struct hlist_head task_getpgid;
+	struct hlist_head task_getsid;
+	struct hlist_head task_getsecid;
+	struct hlist_head task_setnice;
+	struct hlist_head task_setioprio;
+	struct hlist_head task_getioprio;
+	struct hlist_head task_prlimit;
+	struct hlist_head task_setrlimit;
+	struct hlist_head task_setscheduler;
+	struct hlist_head task_getscheduler;
+	struct hlist_head task_movememory;
+	struct hlist_head task_kill;
+	struct hlist_head task_prctl;
+	struct hlist_head task_to_inode;
+	struct hlist_head ipc_permission;
+	struct hlist_head ipc_getsecid;
+	struct hlist_head msg_msg_alloc_security;
+	struct hlist_head msg_msg_free_security;
+	struct hlist_head msg_queue_alloc_security;
+	struct hlist_head msg_queue_free_security;
+	struct hlist_head msg_queue_associate;
+	struct hlist_head msg_queue_msgctl;
+	struct hlist_head msg_queue_msgsnd;
+	struct hlist_head msg_queue_msgrcv;
+	struct hlist_head shm_alloc_security;
+	struct hlist_head shm_free_security;
+	struct hlist_head shm_associate;
+	struct hlist_head shm_shmctl;
+	struct hlist_head shm_shmat;
+	struct hlist_head sem_alloc_security;
+	struct hlist_head sem_free_security;
+	struct hlist_head sem_associate;
+	struct hlist_head sem_semctl;
+	struct hlist_head sem_semop;
+	struct hlist_head netlink_send;
+	struct hlist_head d_instantiate;
+	struct hlist_head getprocattr;
+	struct hlist_head setprocattr;
+	struct hlist_head ismaclabel;
+	struct hlist_head secid_to_secctx;
+	struct hlist_head secctx_to_secid;
+	struct hlist_head release_secctx;
+	struct hlist_head inode_invalidate_secctx;
+	struct hlist_head inode_notifysecctx;
+	struct hlist_head inode_setsecctx;
+	struct hlist_head inode_getsecctx;
 #ifdef CONFIG_SECURITY_NETWORK
-	struct list_head unix_stream_connect;
-	struct list_head unix_may_send;
-	struct list_head socket_create;
-	struct list_head socket_post_create;
-	struct list_head socket_bind;
-	struct list_head socket_connect;
-	struct list_head socket_listen;
-	struct list_head socket_accept;
-	struct list_head socket_sendmsg;
-	struct list_head socket_recvmsg;
-	struct list_head socket_getsockname;
-	struct list_head socket_getpeername;
-	struct list_head socket_getsockopt;
-	struct list_head socket_setsockopt;
-	struct list_head socket_shutdown;
-	struct list_head socket_sock_rcv_skb;
-	struct list_head socket_getpeersec_stream;
-	struct list_head socket_getpeersec_dgram;
-	struct list_head sk_alloc_security;
-	struct list_head sk_free_security;
-	struct list_head sk_clone_security;
-	struct list_head sk_getsecid;
-	struct list_head sock_graft;
-	struct list_head inet_conn_request;
-	struct list_head inet_csk_clone;
-	struct list_head inet_conn_established;
-	struct list_head secmark_relabel_packet;
-	struct list_head secmark_refcount_inc;
-	struct list_head secmark_refcount_dec;
-	struct list_head req_classify_flow;
-	struct list_head tun_dev_alloc_security;
-	struct list_head tun_dev_free_security;
-	struct list_head tun_dev_create;
-	struct list_head tun_dev_attach_queue;
-	struct list_head tun_dev_attach;
-	struct list_head tun_dev_open;
+	struct hlist_head unix_stream_connect;
+	struct hlist_head unix_may_send;
+	struct hlist_head socket_create;
+	struct hlist_head socket_post_create;
+	struct hlist_head socket_socketpair;
+	struct hlist_head socket_bind;
+	struct hlist_head socket_connect;
+	struct hlist_head socket_listen;
+	struct hlist_head socket_accept;
+	struct hlist_head socket_sendmsg;
+	struct hlist_head socket_recvmsg;
+	struct hlist_head socket_getsockname;
+	struct hlist_head socket_getpeername;
+	struct hlist_head socket_getsockopt;
+	struct hlist_head socket_setsockopt;
+	struct hlist_head socket_shutdown;
+	struct hlist_head socket_sock_rcv_skb;
+	struct hlist_head socket_getpeersec_stream;
+	struct hlist_head socket_getpeersec_dgram;
+	struct hlist_head sk_alloc_security;
+	struct hlist_head sk_free_security;
+	struct hlist_head sk_clone_security;
+	struct hlist_head sk_getsecid;
+	struct hlist_head sock_graft;
+	struct hlist_head inet_conn_request;
+	struct hlist_head inet_csk_clone;
+	struct hlist_head inet_conn_established;
+	struct hlist_head secmark_relabel_packet;
+	struct hlist_head secmark_refcount_inc;
+	struct hlist_head secmark_refcount_dec;
+	struct hlist_head req_classify_flow;
+	struct hlist_head tun_dev_alloc_security;
+	struct hlist_head tun_dev_free_security;
+	struct hlist_head tun_dev_create;
+	struct hlist_head tun_dev_attach_queue;
+	struct hlist_head tun_dev_attach;
+	struct hlist_head tun_dev_open;
+	struct hlist_head sctp_assoc_request;
+	struct hlist_head sctp_bind_connect;
+	struct hlist_head sctp_sk_clone;
 #endif	/* CONFIG_SECURITY_NETWORK */
 #ifdef CONFIG_SECURITY_INFINIBAND
-	struct list_head ib_pkey_access;
-	struct list_head ib_endport_manage_subnet;
-	struct list_head ib_alloc_security;
-	struct list_head ib_free_security;
+	struct hlist_head ib_pkey_access;
+	struct hlist_head ib_endport_manage_subnet;
+	struct hlist_head ib_alloc_security;
+	struct hlist_head ib_free_security;
 #endif	/* CONFIG_SECURITY_INFINIBAND */
 #ifdef CONFIG_SECURITY_NETWORK_XFRM
-	struct list_head xfrm_policy_alloc_security;
-	struct list_head xfrm_policy_clone_security;
-	struct list_head xfrm_policy_free_security;
-	struct list_head xfrm_policy_delete_security;
-	struct list_head xfrm_state_alloc;
-	struct list_head xfrm_state_alloc_acquire;
-	struct list_head xfrm_state_free_security;
-	struct list_head xfrm_state_delete_security;
-	struct list_head xfrm_policy_lookup;
-	struct list_head xfrm_state_pol_flow_match;
-	struct list_head xfrm_decode_session;
+	struct hlist_head xfrm_policy_alloc_security;
+	struct hlist_head xfrm_policy_clone_security;
+	struct hlist_head xfrm_policy_free_security;
+	struct hlist_head xfrm_policy_delete_security;
+	struct hlist_head xfrm_state_alloc;
+	struct hlist_head xfrm_state_alloc_acquire;
+	struct hlist_head xfrm_state_free_security;
+	struct hlist_head xfrm_state_delete_security;
+	struct hlist_head xfrm_policy_lookup;
+	struct hlist_head xfrm_state_pol_flow_match;
+	struct hlist_head xfrm_decode_session;
 #endif	/* CONFIG_SECURITY_NETWORK_XFRM */
 #ifdef CONFIG_KEYS
-	struct list_head key_alloc;
-	struct list_head key_free;
-	struct list_head key_permission;
-	struct list_head key_getsecurity;
+	struct hlist_head key_alloc;
+	struct hlist_head key_free;
+	struct hlist_head key_permission;
+	struct hlist_head key_getsecurity;
 #endif	/* CONFIG_KEYS */
 #ifdef CONFIG_AUDIT
-	struct list_head audit_rule_init;
-	struct list_head audit_rule_known;
-	struct list_head audit_rule_match;
-	struct list_head audit_rule_free;
+	struct hlist_head audit_rule_init;
+	struct hlist_head audit_rule_known;
+	struct hlist_head audit_rule_match;
+	struct hlist_head audit_rule_free;
 #endif /* CONFIG_AUDIT */
 #ifdef CONFIG_BPF_SYSCALL
-	struct list_head bpf;
-	struct list_head bpf_map;
-	struct list_head bpf_prog;
-	struct list_head bpf_map_alloc_security;
-	struct list_head bpf_map_free_security;
-	struct list_head bpf_prog_alloc_security;
-	struct list_head bpf_prog_free_security;
+	struct hlist_head bpf;
+	struct hlist_head bpf_map;
+	struct hlist_head bpf_prog;
+	struct hlist_head bpf_map_alloc_security;
+	struct hlist_head bpf_map_free_security;
+	struct hlist_head bpf_prog_alloc_security;
+	struct hlist_head bpf_prog_free_security;
 #endif /* CONFIG_BPF_SYSCALL */
 #ifdef CONFIG_PERF_EVENTS
-	struct list_head perf_event_open;
-	struct list_head perf_event_alloc;
-	struct list_head perf_event_free;
-	struct list_head perf_event_read;
-	struct list_head perf_event_write;
+	struct hlist_head perf_event_open;
+	struct hlist_head perf_event_alloc;
+	struct hlist_head perf_event_free;
+	struct hlist_head perf_event_read;
+	struct hlist_head perf_event_write;
 #endif
+	struct hlist_head locked_down;
+	struct hlist_head kernfs_init_security;
 } __randomize_layout;
 
 /*
@@ -1986,8 +2030,8 @@ struct security_hook_heads {
  * For use with generic list macros for common operations.
  */
 struct security_hook_list {
-	struct list_head		list;
-	struct list_head		*head;
+	struct hlist_node		list;
+	struct hlist_head		*head;
 	union security_list_options	hook;
 	char				*lsm;
 } __randomize_layout;
@@ -2026,7 +2070,7 @@ static inline void security_delete_hooks(struct security_hook_list *hooks,
 	int i;
 
 	for (i = 0; i < count; i++)
-		list_del_rcu(&hooks[i].list);
+		hlist_del_rcu(&hooks[i].list);
 }
 #endif /* CONFIG_SECURITY_SELINUX_DISABLE */
 
@@ -2049,5 +2093,48 @@ void __init loadpin_add_hooks(void);
 #else
 static inline void loadpin_add_hooks(void) { };
 #endif
+
+/*
+ * LSM info structures for ordered LSM initialization
+ */
+enum lsm_order {
+	LSM_ORDER_MUTABLE = 0,
+	LSM_ORDER_FIRST = 1,
+};
+
+#define LSM_FLAG_LEGACY_LINUX	BIT(0)
+#define LSM_FLAG_EXCLUSIVE	BIT(1)
+#define LSM_FLAG_LEGACY_MAJOR	BIT(2)
+
+struct lsm_blob_sizes {
+	int lbs_cred;
+	int lbs_file;
+	int lbs_inode;
+	int lbs_ipc;
+	int lbs_msg_msg;
+	int lbs_task;
+};
+
+struct lsm_info {
+	const char *name;
+	enum lsm_order order;
+	unsigned long flags;
+	int *enabled;
+	int (*init)(void);
+	struct lsm_blob_sizes *blobs;
+};
+
+extern struct lsm_info __start_lsm_info[], __end_lsm_info[];
+extern struct lsm_info __start_early_lsm_info[], __end_early_lsm_info[];
+
+#define DEFINE_LSM(lsm)							\
+	static struct lsm_info __lsm_##lsm				\
+		__used __section(.lsm_info.init)			\
+		__aligned(sizeof(unsigned long))
+
+#define DEFINE_EARLY_LSM(lsm)						\
+	static struct lsm_info __early_lsm_##lsm			\
+		__used __section(.early_lsm_info.init)			\
+		__aligned(sizeof(unsigned long))
 
 #endif /* ! __LINUX_LSM_HOOKS_H */

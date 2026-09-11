@@ -12,7 +12,9 @@
  *  Copyright (C) 2004 Nadia Yvette Chambers
  */
 
+#ifdef CONFIG_MTK_SCHED_TRACERS
 #define DEBUG 1
+#endif
 
 #include <linux/ring_buffer.h>
 #include <generated/utsrelease.h>
@@ -51,9 +53,7 @@
 
 #ifdef CONFIG_MTK_SCHED_TRACERS
 #include "mtk_ftrace.h"
-#define CREATE_TRACE_POINTS
 #include <trace/events/mtk_events.h>
-EXPORT_TRACEPOINT_SYMBOL(gpu_freq);
 #endif
 /*
  * On boot up, the ring buffer is set to the minimum size, so that
@@ -2390,7 +2390,7 @@ static void output_printk(struct trace_event_buffer *fbuffer)
 }
 
 int tracepoint_printk_sysctl(struct ctl_table *table, int write,
-			     void __user *buffer, size_t *lenp,
+			     void *buffer, size_t *lenp,
 			     loff_t *ppos)
 {
 	int save_tracepoint_printk;
@@ -8156,7 +8156,7 @@ static int trace_module_notify(struct notifier_block *self,
 		break;
 	}
 
-	return 0;
+	return NOTIFY_OK;
 }
 
 static struct notifier_block trace_module_nb = {
