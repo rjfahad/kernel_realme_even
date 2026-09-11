@@ -24,14 +24,46 @@ cd "$SCRIPT_DIR"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
 BOLD='\033[1m'
+DIM='\033[2m'
+ITALIC='\033[3m'
+UNDERLINE='\033[4m'
 NC='\033[0m'
 
-info()  { echo -e "${GREEN}[*]${NC} $*"; }
-warn()  { echo -e "${YELLOW}[!]${NC} $*"; }
-error() { echo -e "${RED}[ERROR]${NC} $*"; }
-header(){ echo -e "\n${CYAN}${BOLD}═══ $* ═══${NC}\n"; }
+info()  { echo -e "  ${GREEN}➜${NC}  $*"; }
+warn()  { echo -e "  ${YELLOW}⚠${NC}  $*"; }
+error() { echo -e "  ${RED}✖${NC}  $*"; }
+header(){ echo -e "\n${CYAN}${BOLD}  ┌─────────────────────────────────────────────┐${NC}"; \
+          echo -e "${CYAN}${BOLD}  │${NC}  ${BOLD}$*${NC}"; \
+          echo -e "${CYAN}${BOLD}  └─────────────────────────────────────────────┘${NC}\n"; }
+
+banner() {
+    echo -e "${PURPLE}${BOLD}"
+    cat << 'EOF'
+
+   _   ___ ___ ___ ___   _____   _____ _  _ 
+  /_\ | _ \_ _/ __| __| | __\ \ / / __| \| |
+ / _ \|   /| |\__ \ _|  | _| \ V /| _|| .` |
+/_/ \_\_|_\___|___/___| |___| \_/ |___|_|\_|
+
+EOF
+    echo -e "${NC}"
+    echo -e "  ${DIM}Kernel Builder for Realme Even (MT6768)${NC}"
+    echo -e "  ${DIM}Powered by KernelSU-Next • Built with ❤ by rjfahad${NC}"
+    echo ""
+}
+
+separator() {
+    echo -e "  ${DIM}─────────────────────────────────────────────────${NC}"
+}
+
+status_badge() {
+    local label="$1" value="$2" color="$3"
+    printf "  ${CYAN}│${NC}  %-12s ${color}${BOLD}%-20s${NC}\n" "$label" "$value"
+}
 
 # --- Config ---
 DEFCONFIG="RMX3191_defconfig"
@@ -41,9 +73,8 @@ OUT_DIR="$SCRIPT_DIR/out"
 ANYKERNEL_DIR="$SCRIPT_DIR/anykernel3"
 ANYKERNEL_REPO="https://github.com/osm0sis/AnyKernel3.git"
 ANYKERNEL_CONFIG="$SCRIPT_DIR/config/anykernel.sh"
-PROTON_DIR="$SCRIPT_DIR/prebuilts-clang-proton"
-PROTON_REPO="https://github.com/kdrag0n/proton-clang.git"
-LINEAGE_CLANG="$(realpath "$SCRIPT_DIR/../../../prebuilts/clang/host/linux-x86/mylitle-clang" 2>/dev/null || true)"
+GREENFORCE_DIR="/home/rjfahad/RUI2_EVEN/greenforce-clang"
+GREENFORCE_REPO="https://github.com/greenforce-project/greenforce_clang.git"
 ZIP_PREFIX="Arise-Even"
 VERSION_FILE="$SCRIPT_DIR/.kernel_zip_version"
 KERNEL_STRING="Arise Even Kernel by rjfahad"
@@ -106,10 +137,10 @@ ensure_root_solution() {
 
 # --- Toolchain ---
 detect_toolchain() {
-    if [ -x "$PROTON_DIR/bin/clang" ]; then
-        echo "proton"
-    elif [ -n "$LINEAGE_CLANG" ] && [ -x "$LINEAGE_CLANG/bin/clang" ]; then
-        echo "lineage"
+    if [ -x "$GREENFORCE_DIR/bin/clang" ]; then
+        echo "greenforce"
+    elif command -v clang &>/dev/null; then
+        echo "system"
     elif [ -n "${KERNEL_CLANG:-}" ] && [ -x "$KERNEL_CLANG/bin/clang" ]; then
         echo "custom"
     else
@@ -121,18 +152,19 @@ setup_path() {
     local tc
     tc="$(detect_toolchain)"
     case "$tc" in
-        proton)  export PATH="$PROTON_DIR/bin:$PATH"; info "Toolchain: Proton Clang ($PROTON_DIR)" ;;
-        lineage) export PATH="$LINEAGE_CLANG/bin:$PATH"; info "Toolchain: mylitle-clang ($LINEAGE_CLANG)" ;;
-        custom)  export PATH="$KERNEL_CLANG/bin:$PATH"; info "Toolchain: $KERNEL_CLANG" ;;
+        greenforce) export PATH="$GREENFORCE_DIR/bin:$PATH"; info "Toolchain: ${BOLD}Greenforce Clang 24${NC} ${DIM}($GREENFORCE_DIR)${NC}" ;;
+        system)  info "Toolchain: ${BOLD}System Clang${NC} ${DIM}($(which clang))${NC}" ;;
+        custom)  export PATH="$KERNEL_CLANG/bin:$PATH"; info "Toolchain: ${BOLD}$KERNEL_CLANG${NC}" ;;
         *)
             error "No toolchain found."
             error "Install one of:"
-            error "  - ./prebuilts-clang-proton  (menu -> [1] Setup Workspace)"
-            error "  - \$KERNEL_CLANG=<path> ./run.sh"
+            error "  ${DIM}/home/rjfahad/RUI2_EVEN/greenforce-clang  (greenforce clang)${NC}"
+            error "  ${DIM}sudo apt install clang  (system clang)${NC}"
+            error "  ${DIM}\$KERNEL_CLANG=<path> ./run.sh${NC}"
             return 1
             ;;
     esac
-    clang --version 2>/dev/null | head -1 | sed 's/^/    /'
+    clang --version 2>/dev/null | head -1 | sed 's/^/      /'
 }
 
 # --- Prerequisites ---
@@ -214,7 +246,7 @@ build_kernel() {
     check_prereqs
     check_wireguard
 
-    info "Defconfig: $DEFCONFIG"
+    info "Defconfig: ${BOLD}$DEFCONFIG${NC}"
     make O="$OUT_DIR" ARCH=$ARCH CC=clang HOSTCC=clang CROSS_COMPILE=aarch64-linux-gnu- "$DEFCONFIG"
 
     if grep -q '^CONFIG_WIREGUARD=y' "$OUT_DIR/.config" 2>/dev/null; then
@@ -225,7 +257,7 @@ build_kernel() {
 
     setup_dtc
 
-    info "Building kernel with $JOBS jobs..."
+    info "Building kernel with ${BOLD}$JOBS${NC} jobs..."
     local start_time
     start_time="$(date +%s)"
     make O="$OUT_DIR" ARCH=$ARCH CC=clang HOSTCC=clang CROSS_COMPILE=aarch64-linux-gnu- \
@@ -235,7 +267,7 @@ build_kernel() {
     local elapsed=$(( end_time - start_time ))
     local kernel_size
     kernel_size="$(ls -lh "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" | awk '{print $5}')"
-    info "Build complete in ${elapsed}s -> $OUT_DIR/arch/arm64/boot/Image.gz-dtb ($kernel_size)"
+    info "Build complete in ${BOLD}${elapsed}s${NC} -> ${BOLD}$kernel_size${NC}"
 }
 
 build_dtbo() {
@@ -384,25 +416,26 @@ package_zip() {
 
     local zip_size
     zip_size="$(ls -lh "$output_path" | awk '{print $5}')"
-    info "Flashable zip: $output_path ($zip_size)"
+    info "Flashable zip: ${BOLD}$zip_name${NC} ${DIM}($zip_size)${NC}"
 }
 
 clean_all() {
-    header "Clean"
-    info "Removing $OUT_DIR ..."
+    header "🧹 Clean"
+    info "Removing ${BOLD}$OUT_DIR${NC} ..."
     rm -rf "$OUT_DIR"
-    info "Removing ${ZIP_PREFIX}-v*.zip ..."
+    info "Removing ${BOLD}${ZIP_PREFIX}-v*.zip${NC} ..."
     rm -f "${ZIP_PREFIX}-v"*.zip
-    info "Removing dtbo.img ..."
+    info "Removing ${BOLD}dtbo.img${NC} ..."
     rm -f "$SCRIPT_DIR/dtbo.img"
-    info "Removing $VERSION_FILE ..."
+    info "Removing ${BOLD}$VERSION_FILE${NC} ..."
     rm -f "$VERSION_FILE"
-    info "Clean complete"
+    echo ""
+    info "✨ ${GREEN}Clean complete${NC}"
 }
 
 # --- 1. Setup Workspace ---
 setup_workspace() {
-    header "Setup Workspace"
+    header "🔧 Setup Workspace"
 
     if ! check_prereqs; then
         return 1
@@ -411,15 +444,11 @@ setup_workspace() {
     check_wireguard
 
     if [ "$(detect_toolchain)" = "none" ]; then
-        info "Cloning Proton Clang..."
-        git clone --depth=1 "$PROTON_REPO" "$PROTON_DIR"
-        if [ -f "$PROTON_DIR/bin/ld" ]; then
-            mv "$PROTON_DIR/bin/ld" "$PROTON_DIR/bin/ld.bak"
-            info "Renamed Proton ld -> ld.bak"
-        fi
-        info "Proton Clang installed"
+        info "Cloning ${BOLD}Greenforce Clang 24${NC}..."
+        git clone --depth=1 "$GREENFORCE_REPO" "$GREENFORCE_DIR"
+        info "${GREEN}Greenforce Clang installed${NC}"
     else
-        info "Toolchain already present ($(detect_toolchain))"
+        info "Toolchain already present ${DIM}($(detect_toolchain))${NC}"
     fi
 
     setup_anykernel
@@ -429,7 +458,8 @@ setup_workspace() {
     fi
 
     if setup_path; then
-        info "Workspace setup complete"
+        echo ""
+        info "✨ ${GREEN}Workspace setup complete${NC}"
     else
         error "Workspace setup failed"
     fi
@@ -437,7 +467,7 @@ setup_workspace() {
 
 # --- 2. Build & Package ---
 build_and_package() {
-    header "Build & Package"
+    header "🚀 Build & Package"
 
     if ! setup_path; then
         return 1
@@ -453,14 +483,17 @@ build_and_package() {
     zip_name="$(zip_name_for_version "$build_version")"
     output_path="$SCRIPT_DIR/$zip_name"
 
-    info "Root solution: $root_sol"
-    info "Output: $zip_name"
+    echo -e "  ${CYAN}┌─────────────────────────────────────────────┐${NC}"
+    status_badge "Root:" "$root_sol" "$PURPLE"
+    status_badge "Output:" "$zip_name" "$GREEN"
+    echo -e "  ${CYAN}└─────────────────────────────────────────────┘${NC}"
     echo ""
 
     if [ -f "$output_path" ]; then
         warn "Version v${build_version} already exists: $zip_name"
         while true; do
-            read -rp "  [v] bump version  [o] overwrite  [c] cancel: " version_choice
+            printf "  ${YELLOW}[v]${NC} bump version  ${YELLOW}[o]${NC} overwrite  ${RED}[c]${NC} cancel: "
+            read -r version_choice
             case "$version_choice" in
                 v|V)
                     while :; do
@@ -496,7 +529,7 @@ build_and_package() {
 
 # --- 3. Push to Device ---
 push_to_device() {
-    header "Push to Device"
+    header "📱 Push to Device"
 
     if ! adb devices 2>/dev/null | grep -q "device$"; then
         error "No device connected"
@@ -514,9 +547,10 @@ push_to_device() {
         return 1
     fi
 
-    info "Pushing $zip_name to /sdcard/..."
+    info "Pushing ${BOLD}$zip_name${NC} to ${BOLD}/sdcard/${NC}..."
     adb push "$zip_path" /sdcard/
-    info "Done. Flash from recovery."
+    echo ""
+    info "✨ ${GREEN}Done. Flash from recovery.${NC}"
 }
 
 # --- Menu ---
@@ -531,37 +565,46 @@ show_menu() {
         wg_status="missing"
     fi
 
-    header "Arise Even Kernel Builder"
-    echo -e "  Compiler:   ${BOLD}${compiler}${NC}"
-    echo -e "  Root:       ${BOLD}${root_sol}${NC}"
-    echo -e "  WireGuard:  ${BOLD}${wg_status}${NC}"
-    echo -e "  Zip Ver:    ${BOLD}v${build_version}${NC}"
-    echo -e "  Branch:     ${BOLD}$(git branch --show-current 2>/dev/null || echo detached)${NC}"
+    banner
+
+    echo -e "  ${CYAN}┌─────────────────────────────────────────────┐${NC}"
+    status_badge "Compiler:" "$compiler" "$GREEN"
+    status_badge "Root:" "$root_sol" "$PURPLE"
+    status_badge "WireGuard:" "$wg_status" "$CYAN"
+    status_badge "Zip Ver:" "v${build_version}" "$YELLOW"
+    status_badge "Branch:" "$(git branch --show-current 2>/dev/null || echo detached)" "$BLUE"
+    echo -e "  ${CYAN}└─────────────────────────────────────────────┘${NC}"
     echo ""
-    echo "  [1] Setup Workspace"
-    echo "  [2] Build & Package"
-    echo "  [3] Build DTBO"
-    echo "  [4] Push to Device"
-    echo "  [5] Clean"
-    echo "  [0] Exit"
+    echo -e "  ${BOLD}Available Actions:${NC}"
+    separator
+    echo -e "  ${GREEN}${BOLD}[1]${NC}  🔧  Setup Workspace"
+    echo -e "  ${GREEN}${BOLD}[2]${NC}  🚀  Build & Package"
+    echo -e "  ${GREEN}${BOLD}[3]${NC}  📦  Build DTBO"
+    echo -e "  ${GREEN}${BOLD}[4]${NC}  📱  Push to Device"
+    echo -e "  ${RED}${BOLD}[5]${NC}  🗑   Clean"
+    separator
+    echo -e "  ${RED}${BOLD}[0]${NC}  🚪  Exit"
     echo ""
 }
 
 main_menu() {
     while true; do
+        clear
         show_menu
-        read -rp "  > " choice
+        printf "  ${CYAN}❯${NC} "
+        read -r choice
         case "$choice" in
             1) setup_workspace ;;
             2) build_and_package ;;
             3) build_dtbo ;;
             4) push_to_device ;;
             5) clean_all ;;
-            0) exit 0 ;;
-            *) error "Invalid choice" ;;
+            0) echo -e "\n  ${DIM}Goodbye! Happy flashing! 👋${NC}\n"; exit 0 ;;
+            *) error "Invalid choice. Please try again." ;;
         esac
         echo ""
-        read -rp "  Press Enter to continue..."
+        printf "  ${DIM}Press Enter to continue...${NC}\n"
+        read -r
     done
 }
 
@@ -601,7 +644,7 @@ for arg in "$@"; do
         --menu)       MODE="menu" ;;
         *)
             error "Unknown argument: $arg"
-            echo "Usage: $0 [--build] [--force] [--no-package] [--clean] [--push] [--menu]"
+            echo -e "  ${DIM}Usage: $0 [--build] [--force] [--no-package] [--clean] [--push] [--menu]${NC}"
             exit 1
             ;;
     esac
