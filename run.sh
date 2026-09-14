@@ -105,7 +105,11 @@ bump_version() {
 }
 
 zip_name_for_version() {
-    echo "${ZIP_PREFIX}-v${1}.zip"
+    local kver
+    kver="$(awk '/^VERSION/{v=$3} /^PATCHLEVEL/{p=$3} /^SUBLEVEL/{s=$3} END{print v"."p"."s}' "$SCRIPT_DIR/Makefile")"
+    local build_date
+    build_date="$(date +%d%m%Y)"
+    echo "${ZIP_PREFIX}-v${1}-${kver}-${build_date}.zip"
 }
 
 # --- Root solution ---
@@ -404,8 +408,8 @@ package_zip() {
 
     setup_anykernel
 
+    rm -f "$ANYKERNEL_DIR/dtbo.img"
     cp "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" "$ANYKERNEL_DIR/Image.gz-dtb"
-    [ -f "$SCRIPT_DIR/dtbo.img" ] && cp "$SCRIPT_DIR/dtbo.img" "$ANYKERNEL_DIR/dtbo.img"
     sed -i "s/^kernel.string=.*/kernel.string=$KERNEL_STRING/" "$ANYKERNEL_DIR/anykernel.sh"
 
     rm -f "$output_path"
